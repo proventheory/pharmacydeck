@@ -49,9 +49,16 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: result.error, compound: null }, { status: 404 });
     const data = result.data as { canonical_name?: string };
     const text = `**${data.canonical_name}** — loaded. Check the deck panel.\n\nSuggested follow-ups:\n- Compare with another GLP-1\n- See FDA label\n- What about half-life?`;
+    const messageId = crypto.randomUUID();
+    const toolCallId = crypto.randomUUID();
+    const query = (messages.filter((m) => m.role === "user").pop()?.content ?? "").trim();
     return createDataStreamResponse({
       execute: (writer) => {
+        writer.write(formatDataStreamPart("start_step", { messageId }));
+        writer.write(formatDataStreamPart("tool_call", { toolCallId, toolName: "generateCompound", args: { query } }));
+        writer.write(formatDataStreamPart("tool_result", { toolCallId, result: { type: "compound", data: result.data } }));
         writer.write(formatDataStreamPart("text", text));
+        writer.write(formatDataStreamPart("finish_step", { finishReason: "stop" }));
         writer.write(formatDataStreamPart("finish_message", { finishReason: "stop" }));
       },
     });
