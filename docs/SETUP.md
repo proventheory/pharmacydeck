@@ -75,7 +75,18 @@ Requires Supabase env (same as above). Writes `pharmacydeck.db` and copies to `a
 
 ## Deploying to production (e.g. pharmacydeck.com)
 
-**Vercel:** In Project Settings → General, set **Root Directory** to the **repository root** (leave empty or `.`). Do **not** set it to `apps/web`. The repo root `vercel.json` runs `pnpm install` and `pnpm run build` from the monorepo root and uses `apps/web/.next` as the output. If Root Directory is `apps/web`, the build uses `apps/web/vercel.json` and runs `cd ../.. && pnpm install` / `cd ../.. && pnpm --filter web build`; that can fail depending on how Vercel mounts the repo.
+**Vercel:** Set **Root Directory** to **`apps/web`** (not empty). That way Vercel sees `apps/web/package.json` and detects Next.js; otherwise you get "No Next.js version detected". Leave **Include files outside the root directory in the Build Step** enabled (for the monorepo).
+
+The repo has `apps/web/vercel.json` with:
+- **Install Command:** `pnpm install` (pnpm finds the workspace from `apps/web` and installs the whole monorepo)
+- **Build Command:** `cd ../.. && pnpm run build` (runs from monorepo root so workspace filters resolve; then database → packbuilder → next build)
+
+If you override in the dashboard, use:
+- **Install Command:** `pnpm install`
+- **Build Command:** `cd ../.. && pnpm run build`
+- **Output Directory:** `.next` (Vercel defaults to this when root is `apps/web`)
+
+If the build fails with exit code 2, open the deployment’s **Build** log and find the first red error line (e.g. which of `database` tsc, `packbuilder` tsc, or `next build` failed and the exact message). That will narrow down the fix.
 
 The **live site** will only show the latest UI and API behavior after you **redeploy** from this repo.
 
