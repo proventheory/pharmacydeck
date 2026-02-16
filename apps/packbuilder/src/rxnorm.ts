@@ -15,18 +15,31 @@ export interface FindRxcuiResponse {
   idGroup?: {
     name?: string;
     rxcui?: string[];
+    rxnormId?: string[];
     rxaui?: string[];
   };
 }
 
+/** Resolve drug name to RxCUI. Tries exact/normalized (search=2) then approximate (search=9). */
 export async function findRxcuiByString(name: string): Promise<string | null> {
-  const url = `${RXNAV_BASE}/rxcui.json?name=${encodeURIComponent(name)}&search=2`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const data = (await res.json()) as FindRxcuiResponse;
-  const list = data.idGroup?.rxcui;
-  if (!list || list.length === 0) return null;
-  return list[0];
+  const ids = (data: FindRxcuiResponse) =>
+    data.idGroup?.rxcui ?? data.idGroup?.rxnormId;
+
+  const url2 = `${RXNAV_BASE}/rxcui.json?name=${encodeURIComponent(name)}&search=2`;
+  const res2 = await fetch(url2);
+  if (res2.ok) {
+    const data = (await res2.json()) as FindRxcuiResponse;
+    const list = ids(data);
+    if (list?.length) return String(list[0]);
+  }
+
+  const url9 = `${RXNAV_BASE}/rxcui.json?name=${encodeURIComponent(name)}&search=9`;
+  const res9 = await fetch(url9);
+  if (!res9.ok) return null;
+  const data9 = (await res9.json()) as FindRxcuiResponse;
+  const list9 = ids(data9);
+  if (!list9?.length) return null;
+  return String(list9[0]);
 }
 
 export interface RxNormConcept {

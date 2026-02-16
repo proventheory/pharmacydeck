@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { CompoundCard } from "ui";
 import { SearchInput } from "ui";
+import { getCompoundsFromSupabase } from "@/lib/data";
 import { getAllMockCompounds } from "@/lib/mock-compounds";
 
-export default function Home() {
-  const trending = getAllMockCompounds().slice(0, 5);
+export default async function Home() {
+  const fromDb = await getCompoundsFromSupabase();
+  const trending = fromDb.length > 0 ? fromDb.slice(0, 5) : getAllMockCompounds().slice(0, 5);
 
   return (
     <main className="min-h-screen bg-gray-50">

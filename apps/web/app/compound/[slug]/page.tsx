@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { getCompoundBySlugFromSupabase } from "@/lib/data";
 import { getMockCompoundBySlug } from "@/lib/mock-compounds";
 
 export default async function CompoundPage({
@@ -8,7 +9,8 @@ export default async function CompoundPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const compound = getMockCompoundBySlug(slug);
+  const compound =
+    (await getCompoundBySlugFromSupabase(slug)) ?? getMockCompoundBySlug(slug);
   if (!compound) notFound();
 
   const { card } = compound;
@@ -22,6 +24,9 @@ export default async function CompoundPage({
         <h1 className="mt-4 text-3xl font-bold text-gray-900">
           {compound.canonical_name}
         </h1>
+        <p className="mt-1 text-sm text-gray-500">
+          RxCUI {compound.rxcui}
+        </p>
         {compound.description && (
           <p className="mt-2 text-gray-600">{compound.description}</p>
         )}

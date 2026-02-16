@@ -27,6 +27,8 @@ async function main() {
     process.exit(1);
   }
 
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
   console.log("Ingesting:", names.join(", "));
   for (const name of names) {
     const result = await ingestCompound(name);
@@ -35,6 +37,7 @@ async function main() {
     } else {
       console.error(`  FAIL ${name}: ${result.error ?? "unknown"}`);
     }
+    await delay(600);
   }
 }
 

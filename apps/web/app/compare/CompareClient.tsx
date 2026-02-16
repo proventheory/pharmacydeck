@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { MockCompound } from "@/lib/mock-compounds";
+import type { CompoundWithCard } from "@/lib/data";
 
-export function CompareClient({ compounds }: { compounds: MockCompound[] }) {
+export function CompareClient({ compounds }: { compounds: CompoundWithCard[] }) {
   const [aRxcui, setARxcui] = useState(compounds[0]?.rxcui ?? "");
   const [bRxcui, setBRxcui] = useState(compounds[1]?.rxcui ?? "");
 
@@ -62,6 +62,7 @@ export function CompareClient({ compounds }: { compounds: MockCompound[] }) {
                   {compoundA.canonical_name}
                 </Link>
               </h2>
+              <p className="mt-1 text-xs text-gray-500">RxCUI {compoundA.rxcui}</p>
               <p className="mt-2 text-sm text-gray-600">{compoundA.card.classification}</p>
               <p className="mt-4 text-gray-700">{compoundA.card.mechanism_summary}</p>
               <p className="mt-4 text-gray-700">{compoundA.card.uses_summary}</p>
@@ -81,6 +82,7 @@ export function CompareClient({ compounds }: { compounds: MockCompound[] }) {
                   {compoundB.canonical_name}
                 </Link>
               </h2>
+              <p className="mt-1 text-xs text-gray-500">RxCUI {compoundB.rxcui}</p>
               <p className="mt-2 text-sm text-gray-600">{compoundB.card.classification}</p>
               <p className="mt-4 text-gray-700">{compoundB.card.mechanism_summary}</p>
               <p className="mt-4 text-gray-700">{compoundB.card.uses_summary}</p>

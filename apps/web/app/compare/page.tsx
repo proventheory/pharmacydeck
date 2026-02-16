@@ -1,8 +1,10 @@
+import { getCompoundsFromSupabase } from "@/lib/data";
 import { getAllMockCompounds } from "@/lib/mock-compounds";
 import { CompareClient } from "./CompareClient";
 
-export default function ComparePage() {
-  const compounds = getAllMockCompounds();
+export default async function ComparePage() {
+  const fromDb = await getCompoundsFromSupabase();
+  const compounds = fromDb.length > 0 ? fromDb : getAllMockCompounds();
 
   return (
     <main className="min-h-screen bg-gray-50">
