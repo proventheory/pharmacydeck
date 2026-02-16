@@ -5,6 +5,33 @@ import { useChat } from "@ai-sdk/react";
 import type { DeckCompound } from "@/components/DeckPanel";
 import { DeckPanel } from "@/components/DeckPanel";
 
+const EMPTY_STATE_SUGGESTIONS = [
+  "What is semaglutide?",
+  "Compare semaglutide and tirzepatide",
+  "Tell me about metformin",
+  "Tirzepatide mechanism and indications",
+];
+
+/** Parse "Suggested follow-ups:" section from assistant message text; return array of prompt strings */
+function parseSuggestedFollowUps(content: string): string[] {
+  if (!content || typeof content !== "string") return [];
+  const marker = "Suggested follow-ups:";
+  const idx = content.indexOf(marker);
+  if (idx === -1) return [];
+  const after = content.slice(idx + marker.length).trim();
+  const lines = after.split(/\n/).map((l) => l.replace(/^[-*]\s*/, "").trim()).filter(Boolean);
+  return lines.slice(0, 5);
+}
+
+/** Strip the "Suggested follow-ups:" block from display so we show chips instead */
+function contentWithoutFollowUps(content: string): string {
+  if (!content || typeof content !== "string") return content;
+  const marker = "Suggested follow-ups:";
+  const idx = content.indexOf(marker);
+  if (idx === -1) return content;
+  return content.slice(0, idx).trim();
+}
+
 function extractCompoundsFromMessages(messages: Array<{ role: string; toolInvocations?: Array<{ state?: string; result?: unknown }> }>): DeckCompound[] {
   const seen = new Set<string>();
   const out: DeckCompound[] = [];
@@ -25,19 +52,50 @@ function extractCompoundsFromMessages(messages: Array<{ role: string; toolInvoca
   return out;
 }
 
+/** Build context for next request from last assistant message (Phase 3) */
+function buildContextFromMessages(messages: Array<{ role: string; toolInvocations?: Array<{ state?: string; result?: unknown }> }>): {
+  lastCompoundNames?: string[];
+  hasRegulatory?: boolean;
+  hasStudies?: boolean;
+} | undefined {
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  if (!lastAssistant?.toolInvocations?.length) return undefined;
+  const names: string[] = [];
+  let hasRegulatory = false;
+  let hasStudies = false;
+  for (const ti of lastAssistant.toolInvocations) {
+    if (ti.state !== "result" || !ti.result || typeof ti.result !== "object") continue;
+    const r = ti.result as { type?: string; data?: { canonical_name?: string; regulatory?: unknown; studies?: unknown } };
+    if (r.type === "compound" && r.data) {
+      if (r.data.canonical_name) names.push(r.data.canonical_name);
+      if (r.data.regulatory != null) hasRegulatory = true;
+      if (Array.isArray(r.data.studies) && r.data.studies.length > 0) hasStudies = true;
+    }
+  }
+  if (names.length === 0 && !hasRegulatory && !hasStudies) return undefined;
+  return { lastCompoundNames: names.length ? names : undefined, hasRegulatory, hasStudies };
+}
+
 export function HybridChat() {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<Array<{ role: string; toolInvocations?: Array<{ state?: string; result?: unknown }> }>>([]);
   const {
     messages,
     input,
     setInput,
     handleSubmit,
-    status,
-    error,
+    append,
+    isLoading,
+    error: chatError,
   } = useChat({
     api: "/api/chat",
-    body: {},
+    body: {
+      get context() {
+        return buildContextFromMessages(messagesRef.current);
+      },
+    },
   });
+  messagesRef.current = messages;
 
   const deck = extractCompoundsFromMessages(messages);
 
@@ -47,79 +105,125 @@ export function HybridChat() {
 
   const [mode, setMode] = useState<"chat" | "deck">("chat");
 
+  const onSubmit = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!input.trim() || isLoading) return;
+    handleSubmit(e);
+  };
+
+  const handleSuggestionClick = (suggestion: string) => {
+    setInput(suggestion);
+  };
+
+  const handleFollowUpClick = (prompt: string) => {
+    setInput("");
+    append({ role: "user", content: prompt });
+  };
+
   return (
-    <div className="flex h-[calc(100vh-8rem)] min-h-[420px] flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+    <div className="flex h-full min-h-[360px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
       <div className="flex shrink-0 gap-2 border-b border-gray-200 px-3 py-2">
         <button
           type="button"
           onClick={() => setMode("chat")}
-          className={`rounded px-3 py-1 text-sm ${mode === "chat" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700"}`}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${mode === "chat" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
         >
           Chat
         </button>
         <button
           type="button"
           onClick={() => setMode("deck")}
-          className={`rounded px-3 py-1 text-sm ${mode === "deck" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700"}`}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${mode === "deck" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
         >
           Deck
         </button>
       </div>
-      <div className="flex flex-1 overflow-hidden">
-      <div className={`flex w-full flex-1 flex-col overflow-hidden ${mode === "deck" ? "hidden" : "md:min-w-0"}`}>
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
-          {messages.length === 0 && (
-            <p className="text-gray-500">Ask about a compound (e.g. semaglutide) or compare two (e.g. semaglutide vs tirzepatide).</p>
-          )}
-          {messages.map((m) => (
-            <div
-              key={m.id ?? Math.random()}
-              className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
-            >
-              <div
-                className={
-                  m.role === "user"
-                    ? "max-w-[85%] rounded-lg bg-blue-600 px-3 py-2 text-white"
-                    : "max-w-[85%] rounded-lg bg-gray-100 px-3 py-2 text-gray-900"
-                }
-              >
-                {m.role === "user" ? (
-                  <span className="whitespace-pre-wrap text-sm">{String(m.content ?? "")}</span>
-                ) : (
-                  <div className="whitespace-pre-wrap text-sm">
-                    {typeof m.content === "string" && m.content ? m.content : null}
-                    {m.toolInvocations?.some((ti) => ("result" in ti && (ti as { result?: { type?: string } }).result?.type === "compound")) && (
-                      <span className="mt-2 block text-green-700">Card(s) added to deck →</span>
+      <div className="flex min-h-0 flex-1">
+        <div className={`flex flex-1 flex-col overflow-hidden ${mode === "deck" ? "hidden" : "flex"} md:min-w-0`}>
+          <div className="flex-1 space-y-5 overflow-y-auto p-4">
+            {messages.length === 0 && (
+              <div className="flex flex-col gap-3">
+                <p className="text-gray-500">Ask about a compound or compare two. Examples:</p>
+                <div className="flex flex-wrap gap-2">
+                  {EMPTY_STATE_SUGGESTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => handleSuggestionClick(s)}
+                      className="rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {messages.map((m) => (
+              <div key={m.id ?? Math.random()} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+                <div className="max-w-[90%]">
+                  <div
+                    className={
+                      m.role === "user"
+                        ? "rounded-2xl rounded-tr-md bg-blue-600 px-4 py-2.5 text-white"
+                        : "rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-gray-900"
+                    }
+                  >
+                    {m.role === "user" ? (
+                      <span className="whitespace-pre-wrap text-sm">{String(m.content ?? "")}</span>
+                    ) : (
+                      <div className="whitespace-pre-wrap text-sm">
+                        {typeof m.content === "string" ? contentWithoutFollowUps(m.content) : null}
+                        {m.toolInvocations?.some((ti) => ("result" in ti && (ti as { result?: { type?: string } }).result?.type === "compound")) && (
+                          <span className="mt-2 block text-green-700">Card(s) added to deck →</span>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
+                  {m.role === "assistant" && typeof m.content === "string" && (() => {
+                    const followUps = parseSuggestedFollowUps(m.content);
+                    if (followUps.length === 0) return null;
+                    return (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {followUps.map((prompt) => (
+                          <button
+                            key={prompt}
+                            type="button"
+                            onClick={() => handleFollowUpClick(prompt)}
+                            className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
-            </div>
-          ))}
-          {status === "streaming" && (
-            <div className="flex justify-start">
-              <div className="rounded-lg bg-gray-100 px-3 py-2 text-gray-500">Thinking…</div>
-            </div>
-          )}
-          {error && (
-            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{String(error)}</div>
-          )}
-          <div ref={bottomRef} />
+            ))}
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-gray-500">Thinking…</div>
+              </div>
+            )}
+            {chatError && (
+              <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">{String(chatError)}</div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+          <form onSubmit={onSubmit} className="shrink-0 border-t border-gray-200 p-3">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Compound or question…"
+              className="w-full rounded-xl border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              disabled={isLoading}
+            />
+          </form>
         </div>
-        <form onSubmit={handleSubmit} className="border-t border-gray-200 p-3">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Compound or question…"
-            className="w-full rounded-lg border border-gray-300 px-4 py-2 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            disabled={status === "streaming"}
-          />
-        </form>
-      </div>
-      <div className={mode === "deck" ? "min-w-0 flex-1 overflow-hidden" : "hidden w-80 shrink-0 md:block"}>
-        <DeckPanel deck={deck} />
-      </div>
+        <div className={mode === "deck" ? "flex min-w-0 flex-1 flex-col" : "hidden w-80 shrink-0 md:flex md:flex-col"}>
+          <DeckPanel deck={deck} />
+        </div>
       </div>
     </div>
   );

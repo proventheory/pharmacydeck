@@ -4,6 +4,7 @@ import { z } from "zod";
 import { NextRequest } from "next/server";
 import { getCompoundBySlugFromSupabase } from "@/lib/data";
 import { runIngest, slugFromCanonicalName } from "@/lib/run-ingest";
+import { buildSystemPromptWithContext } from "@/lib/chat-prompts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -22,41 +23,46 @@ async function fetchOrGenerateCompound(query: string): Promise<{ type: "compound
 }
 
 /**
- * POST /api/chat — AI with tool: generateCompound. When the model calls the tool, we resolve/generate and return compound for the deck.
+ * POST /api/chat — AI with tool generateCompound. Schema-aware system prompt and follow-up instructions.
+ * Body may include context for Phase 3: { messages, context?: { lastCompoundNames?, hasRegulatory?, hasStudies? } }.
  */
 export async function POST(request: NextRequest) {
-  let body: { messages?: Array<{ role: string; content: string }> };
+  let body: {
+    messages?: Array<{ role: string; content: string }>;
+    context?: { lastCompoundNames?: string[]; hasRegulatory?: boolean; hasStudies?: boolean };
+  };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
   const messages = body.messages ?? [];
+  const context = body.context;
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    // Free path: no LLM; still resolve/generate compound and return for the deck
     const lastUser = messages.filter((m) => m.role === "user").pop();
     const query = (lastUser?.content ?? "").trim();
     if (!query) return Response.json({ error: "No message" }, { status: 400 });
     const result = await fetchOrGenerateCompound(query);
     if (result.type === "error")
       return Response.json({ error: result.error, compound: null }, { status: 404 });
-    const text = `**${(result.data as { canonical_name?: string }).canonical_name}** — loaded. Check the deck panel.`;
+    const data = result.data as { canonical_name?: string };
+    const text = `**${data.canonical_name}** — loaded. Check the deck panel.\n\nSuggested follow-ups:\n- Compare with another GLP-1\n- See FDA label\n- What about half-life?`;
     return Response.json({ message: text, compound: result.data });
   }
 
+  const systemPrompt = buildSystemPromptWithContext(context);
+
   const result = streamText({
     model: openai("gpt-4o-mini"),
-    system: `You are PharmacyDeck, a pharmaceutical intelligence assistant.
-When the user asks about a drug or compound (by name or comparison), use the generateCompound tool for each compound mentioned.
-Examples: "semaglutide" → call generateCompound("semaglutide"); "compare semaglutide and tirzepatide" → call generateCompound for each.
-Respond briefly and professionally; the deck panel will show the cards.`,
+    system: systemPrompt,
     messages: messages.map((m) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
     maxSteps: 5,
     tools: {
       generateCompound: tool({
-        description: "Fetch or generate full compound intelligence (identity, chemistry, FDA, studies). Call this for each drug the user mentions.",
+        description:
+          "Fetch or generate full compound intelligence for a drug name: identity (RxCUI), card (mechanism, indications, safety, PK/PD, clinical profile, deck stats), FDA/regulatory when available, and studies/editorial when present. Call once per compound. Adds the compound to the user's deck.",
         parameters: z.object({ query: z.string().describe("Compound or drug name, e.g. semaglutide") }),
         execute: async ({ query }) => {
           const out = await fetchOrGenerateCompound(query.trim());

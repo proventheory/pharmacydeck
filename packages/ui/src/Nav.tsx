@@ -23,10 +23,10 @@ export function Nav({ Link: LinkComponent = DefaultLink }: NavProps = {}) {
         <LinkComponent href="/" className="text-lg font-bold text-gray-900">
           PharmacyDeck
         </LinkComponent>
-        <ul className="flex gap-6">
+        <ul className="flex gap-5 text-sm">
           <li>
             <LinkComponent href="/" className="text-gray-600 hover:text-gray-900">
-              Home
+              Search
             </LinkComponent>
           </li>
           <li>
@@ -37,11 +37,6 @@ export function Nav({ Link: LinkComponent = DefaultLink }: NavProps = {}) {
           <li>
             <LinkComponent href="/deck" className="text-gray-600 hover:text-gray-900">
               My Deck
-            </LinkComponent>
-          </li>
-          <li>
-            <LinkComponent href="/chat" className="text-gray-600 hover:text-gray-900">
-              Chat
             </LinkComponent>
           </li>
           <li>

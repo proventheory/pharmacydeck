@@ -1,54 +1,18 @@
-import Link from "next/link";
-import { CompoundCard } from "ui";
-import { getCompoundsFromSupabase } from "@/lib/data";
-import { getAllMockCompounds } from "@/lib/mock-compounds";
-import { SearchClient } from "./search-client";
+import { HybridChat } from "./chat/HybridChat";
 
-export default async function Home() {
-  const fromDb = await getCompoundsFromSupabase();
-  const trending = fromDb.length > 0 ? fromDb.slice(0, 5) : getAllMockCompounds().slice(0, 5);
-
+export default function Home() {
   return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        <h1 className="text-3xl font-bold text-gray-900">PharmacyDeck</h1>
-        <p className="mt-2 text-gray-600">
-          Pharmaceutical intelligence interface — explore compounds, compare, and build your deck.
-        </p>
-        <p className="mt-1 text-sm text-gray-500">
-          Search below or use <Link href="/chat" className="text-blue-600 hover:underline">Chat</Link> to find and add compounds.
-        </p>
-
-        <SearchClient />
-
-        <section className="mt-10">
-          <h2 className="text-xl font-semibold text-gray-900">Trending compounds</h2>
-          <ul className="mt-4 grid gap-4 sm:grid-cols-2">
-            {trending.map((c) => (
-              <li key={c.rxcui}>
-                <Link href={`/compound/${c.card.slug ?? c.canonical_name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`}>
-                  <CompoundCard
-                    compound={{
-                      rxcui: c.rxcui,
-                      canonical_name: c.canonical_name,
-                      classification: c.card.primary_class ?? c.card.classification,
-                      mechanism_summary: c.card.mechanism_summary,
-                    }}
-                  />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="mt-10 rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="text-lg font-semibold text-gray-900">My Deck</h2>
-          <p className="mt-2 text-sm text-gray-600">
-            <Link href="/deck" className="text-blue-600 hover:underline">
-              View your saved compounds
-            </Link>
+    <main className="flex min-h-[calc(100vh-3.5rem)] flex-col bg-gray-50">
+      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-4">
+        <div className="mb-2 shrink-0">
+          <h1 className="text-xl font-bold text-gray-900">PharmacyDeck</h1>
+          <p className="mt-0.5 text-sm text-gray-500">
+            Search or ask about any compound — compare, see FDA info, and build your deck.
           </p>
-        </section>
+        </div>
+        <div className="min-h-0 flex-1">
+          <HybridChat />
+        </div>
       </div>
     </main>
   );
