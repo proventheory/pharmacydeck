@@ -3,7 +3,11 @@
  * No API key required.
  */
 
+import { fetchWithRetry } from "./fetchWithRetry.js";
+
 const RXNAV_BASE = "https://rxnav.nlm.nih.gov/REST";
+
+const get = (url: string) => fetchWithRetry(url, {}, { maxRetries: 3, initialMs: 500 });
 
 export interface RxNormIdGroup {
   rxcui: string;
@@ -26,7 +30,7 @@ export async function findRxcuiByString(name: string): Promise<string | null> {
     data.idGroup?.rxcui ?? data.idGroup?.rxnormId;
 
   const url2 = `${RXNAV_BASE}/rxcui.json?name=${encodeURIComponent(name)}&search=2`;
-  const res2 = await fetch(url2);
+  const res2 = await get(url2);
   if (res2.ok) {
     const data = (await res2.json()) as FindRxcuiResponse;
     const list = ids(data);
@@ -34,7 +38,7 @@ export async function findRxcuiByString(name: string): Promise<string | null> {
   }
 
   const url9 = `${RXNAV_BASE}/rxcui.json?name=${encodeURIComponent(name)}&search=9`;
-  const res9 = await fetch(url9);
+  const res9 = await get(url9);
   if (!res9.ok) return null;
   const data9 = (await res9.json()) as FindRxcuiResponse;
   const list9 = ids(data9);
@@ -59,7 +63,7 @@ export interface RelatedResponse {
 
 export async function getRelatedConcepts(rxcui: string): Promise<RxNormConcept[]> {
   const url = `${RXNAV_BASE}/rxcui/${rxcui}/related.json?tty=SCD+SCDC+SBD+SBDF+GPCK+SBDC`;
-  const res = await fetch(url);
+  const res = await get(url);
   if (!res.ok) return [];
   const data = (await res.json()) as RelatedResponse;
   const out: RxNormConcept[] = [];
@@ -74,7 +78,7 @@ export async function getRelatedConcepts(rxcui: string): Promise<RxNormConcept[]
 
 export async function getSynonyms(rxcui: string): Promise<string[]> {
   const url = `${RXNAV_BASE}/rxcui/${rxcui}/properties.json`;
-  const res = await fetch(url);
+  const res = await get(url);
   if (!res.ok) return [];
   const data = (await res.json()) as { properties?: { name?: string; synonym?: string } };
   const name = data.properties?.name;
@@ -91,7 +95,7 @@ export async function getSynonyms(rxcui: string): Promise<string[]> {
 
 export async function getConceptName(rxcui: string): Promise<string | null> {
   const url = `${RXNAV_BASE}/rxcui/${rxcui}/properties.json`;
-  const res = await fetch(url);
+  const res = await get(url);
   if (!res.ok) return null;
   const data = (await res.json()) as { properties?: { name?: string } };
   return data.properties?.name ?? null;

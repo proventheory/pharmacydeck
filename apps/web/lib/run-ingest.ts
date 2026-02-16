@@ -12,9 +12,22 @@ export interface IngestResult {
 }
 
 export async function runIngest(inputName: string): Promise<IngestResult> {
-  // Resolved at runtime so Next build does not need to resolve workspace package
-  const mod = await import(/* webpackIgnore: true */ "packbuilder");
-  return mod.ingestCompound(inputName);
+  try {
+    // Bundled via transpilePackages so ingest runs on Vercel; fallback if package missing at runtime
+    const mod = await import("packbuilder");
+    return mod.ingestCompound(inputName);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Cannot find package") || msg.includes("packbuilder")) {
+      return {
+        rxcui: "",
+        canonical_name: inputName,
+        ok: false,
+        error: "Compound ingestion is unavailable in this environment. Search will use cached/mock data.",
+      };
+    }
+    throw err;
+  }
 }
 
 export function slugFromCanonicalName(canonicalName: string): string {

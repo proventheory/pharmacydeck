@@ -1,4 +1,4 @@
-import { streamText, tool } from "ai";
+import { streamText, tool, createDataStreamResponse, formatDataStreamPart } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import { NextRequest } from "next/server";
@@ -49,7 +49,12 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: result.error, compound: null }, { status: 404 });
     const data = result.data as { canonical_name?: string };
     const text = `**${data.canonical_name}** — loaded. Check the deck panel.\n\nSuggested follow-ups:\n- Compare with another GLP-1\n- See FDA label\n- What about half-life?`;
-    return Response.json({ message: text, compound: result.data });
+    return createDataStreamResponse({
+      execute: (writer) => {
+        writer.write(formatDataStreamPart("text", text));
+        writer.write(formatDataStreamPart("finish_message", { finishReason: "stop" }));
+      },
+    });
   }
 
   const systemPrompt = buildSystemPromptWithContext(context);

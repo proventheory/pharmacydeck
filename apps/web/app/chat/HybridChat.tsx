@@ -94,6 +94,18 @@ export function HybridChat() {
         return buildContextFromMessages(messagesRef.current);
       },
     },
+    fetch: async (url, init) => {
+      const res = await fetch(url, init);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const message =
+          typeof (data as { error?: string })?.error === "string"
+            ? (data as { error: string }).error
+            : res.statusText || "Request failed";
+        throw new Error(message);
+      }
+      return res;
+    },
   });
   messagesRef.current = messages;
 
@@ -112,7 +124,8 @@ export function HybridChat() {
   };
 
   const handleSuggestionClick = (suggestion: string) => {
-    setInput(suggestion);
+    setInput("");
+    append({ role: "user", content: suggestion });
   };
 
   const handleFollowUpClick = (prompt: string) => {
@@ -206,19 +219,48 @@ export function HybridChat() {
               </div>
             )}
             {chatError && (
-              <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">{String(chatError)}</div>
+              <div className="flex flex-col gap-3">
+                <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
+                  {chatError.message || "Something went wrong. Try another query."}
+                </p>
+                <p className="text-gray-500 text-sm">Try one of these:</p>
+                <div className="flex flex-wrap gap-2">
+                  {EMPTY_STATE_SUGGESTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => {
+                        setInput("");
+                        append({ role: "user", content: s });
+                      }}
+                      className="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
             <div ref={bottomRef} />
           </div>
-          <form onSubmit={onSubmit} className="shrink-0 border-t border-gray-200 p-3">
+          <form onSubmit={onSubmit} className="shrink-0 border-t border-gray-200 p-3 flex gap-2 items-center">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Compound or question…"
-              className="w-full rounded-xl border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="flex-1 min-w-0 rounded-xl border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               disabled={isLoading}
+              aria-label="Compound or question"
             />
+            <button
+              type="submit"
+              disabled={!input.trim() || isLoading}
+              className="shrink-0 rounded-xl bg-gray-900 px-4 py-3 text-white font-medium hover:bg-gray-800 disabled:opacity-50 disabled:pointer-events-none"
+              aria-label="Send"
+            >
+              Send
+            </button>
           </form>
         </div>
         <div className={mode === "deck" ? "flex min-w-0 flex-1 flex-col" : "hidden w-80 shrink-0 md:flex md:flex-col"}>

@@ -1,0 +1,21 @@
+rank,canonical_name,rxcui,priority_score,category
+1,Semaglutide,1991302,99,Metabolic
+2,Tirzepatide,2601723,98,Metabolic
+3,Metformin,6809,97,Metabolic
+4,Sildenafil,136411,96,Sexual Health
+5,Tadalafil,358263,95,Sexual Health
+6,Testosterone,10379,94,Hormone
+7,Estradiol,4083,93,Hormone
+8,Progesterone,8727,92,Hormone
+9,Finasteride,25025,91,Hormone
+10,Minoxidil,6984,90,Hormone
+11,Fluoxetine,4493,89,Psych
+12,Sertraline,36437,88,Psych
+13,Adderall,84815,87,Psych
+14,Modafinil,30125,86,Psych
+15,Atorvastatin,83367,85,Cardiovascular
+16,Lisinopril,29046,84,Cardiovascular
+17,Amoxicillin,723,83,Antibiotic
+18,Azithromycin,18631,82,Antibiotic
+19,Rapamycin,35302,81,Longevity
+20,Ketamine,6130,80,Psych

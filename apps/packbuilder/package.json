@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./ingest": "./dist/ingest.js"
+  },
   "scripts": {
     "build": "tsc",
     "ingest": "node dist/index.js",

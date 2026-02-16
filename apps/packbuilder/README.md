@@ -5,10 +5,13 @@ Fills the Supabase database from RxNorm, PubChem, and (optionally) DailyMed/open
 ## Setup
 
 1. Copy `.env.example` to `.env` (or use the existing `.env`).
-2. In **Supabase Dashboard → Project Settings → API**, copy the **service_role** key (secret).
+2. In **Supabase Dashboard → Project Settings → API**:
+   - Use **SUPABASE_URL** = your project URL.
+   - Use **SUPABASE_SERVICE_ROLE_KEY** = the **service_role** key (the secret one), **not** the anon/publishable key.
+   - If you use the publishable key, ingestion will fail with "row-level security policy" because RLS blocks writes; only the service_role key bypasses RLS.
 3. Set in `.env`:
-   - `SUPABASE_URL` — your project URL (already set if you used the template).
-   - `SUPABASE_SERVICE_ROLE_KEY` — paste the service_role key.
+   - `SUPABASE_URL` — your project URL.
+   - `SUPABASE_SERVICE_ROLE_KEY` — the **service_role** secret key (not the key that contains "publishable").
 
 ## Run
 
