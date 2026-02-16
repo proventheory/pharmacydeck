@@ -38,19 +38,21 @@ export async function POST(request: NextRequest) {
           let editorial: Array<{ title: string; url: string | null; summary: string; source: string; published_date: Date | null }> = [];
           try {
             const supabase = getSupabase();
-            const { data: editorialRows } = await supabase
+            if (supabase) {
+              const { data: editorialRows } = await supabase
               .from("compound_editorial_reference")
               .select("title, summary, source, source_url, published_date")
               .eq("compound_id", existing.compound_id ?? "")
               .order("published_date", { ascending: false })
               .limit(5);
-            editorial = (editorialRows ?? []).map((r) => ({
-              title: r.title,
-              url: r.source_url,
-              summary: r.summary ?? "",
-              source: r.source ?? "pharmacytimes",
-              published_date: r.published_date ? new Date(r.published_date) : null,
-            }));
+              editorial = (editorialRows ?? []).map((r) => ({
+                title: r.title,
+                url: r.source_url,
+                summary: r.summary ?? "",
+                source: r.source ?? "pharmacytimes",
+                published_date: r.published_date ? new Date(r.published_date) : null,
+              }));
+            }
           } catch {
             // table may not exist yet
           }
@@ -130,10 +132,10 @@ export async function POST(request: NextRequest) {
           return;
         }
         const compoundId = compound.compound_id;
-        if (compoundId && editorial.length > 0) {
-          const supabase = getSupabase();
+        const supabaseWrite = getSupabase();
+        if (compoundId && editorial.length > 0 && supabaseWrite) {
           for (const article of editorial) {
-            await supabase.from("compound_editorial_reference").insert({
+            await supabaseWrite.from("compound_editorial_reference").insert({
               compound_id: compoundId,
               title: article.title,
               summary: article.summary || null,
@@ -145,20 +147,24 @@ export async function POST(request: NextRequest) {
         }
         send(controller, "editorial_ready", editorial);
 
-        const supabase = getSupabase();
-        const { data: labelSection } = await supabase
-          .from("compound_fda_label_section")
-          .select("content")
-          .eq("compound_id", compoundId ?? "")
-          .eq("section", "clinical_pharmacology")
-          .limit(1)
-          .maybeSingle();
-        if (labelSection?.content) {
+        const supabaseRead = getSupabase();
+        let labelSection: { content?: string } | null = null;
+        if (supabaseRead) {
+          const res = await supabaseRead
+            .from("compound_fda_label_section")
+            .select("content")
+            .eq("compound_id", compoundId ?? "")
+            .eq("section", "clinical_pharmacology")
+            .limit(1)
+            .maybeSingle();
+          labelSection = res.data;
+        }
+        if (labelSection?.content && supabaseRead) {
           try {
             const extracted = await extractPharmacokineticsFromText(labelSection.content);
             const hasAny = Object.values(extracted).some((v) => v != null && v !== "");
             if (hasAny) {
-              const { data: cardRow } = await supabase
+              const { data: cardRow } = await supabaseRead
                 .from("compound_card")
                 .select("id, pharmacokinetics")
                 .eq("compound_id", compoundId)
@@ -168,7 +174,7 @@ export async function POST(request: NextRequest) {
               if (cardRow) {
                 const current = (cardRow.pharmacokinetics ?? {}) as Record<string, unknown>;
                 const merged = { ...current, ...extracted };
-                await supabase.from("compound_card").update({ pharmacokinetics: merged }).eq("id", cardRow.id);
+                await supabaseRead.from("compound_card").update({ pharmacokinetics: merged }).eq("id", cardRow.id);
               }
             }
           } catch {

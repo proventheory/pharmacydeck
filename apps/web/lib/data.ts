@@ -200,6 +200,7 @@ function compoundWithCardFromRows(
 export async function getCompoundsFromSupabase(): Promise<CompoundWithCard[]> {
   try {
     const supabase = getSupabase();
+    if (!supabase) return [];
     const { data: compounds, error: compoundsError } = await supabase
       .from("compound")
       .select("id, rxcui, canonical_name")
@@ -225,6 +226,7 @@ export async function getCompoundsFromSupabase(): Promise<CompoundWithCard[]> {
 export async function getCompoundBySlugFromSupabase(slug: string): Promise<CompoundWithCard | null> {
   try {
     const supabase = getSupabase();
+    if (!supabase) return null;
     const normalized = slug.toLowerCase().replace(/[^a-z0-9-]/g, "");
 
     const { data: cardBySlug } = await supabase
@@ -304,6 +306,7 @@ export async function getCompoundBySlugFromSupabase(slug: string): Promise<Compo
 export async function getCompoundByRxcuiFromSupabase(rxcui: string): Promise<CompoundWithCard | null> {
   try {
     const supabase = getSupabase();
+    if (!supabase) return null;
     const { data: compound, error: compoundError } = await supabase
       .from("compound")
       .select("id, rxcui, canonical_name")

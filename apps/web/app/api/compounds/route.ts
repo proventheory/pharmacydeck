@@ -114,6 +114,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = getSupabase();
+    if (!supabase) return Response.json({ compounds: [] });
     const { data: compounds, error: compoundsError } = await supabase
       .from("compound")
       .select("id, rxcui, canonical_name")

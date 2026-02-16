@@ -30,19 +30,22 @@ export async function POST(request: NextRequest) {
     const existing = await getCompoundBySlugFromSupabase(slug);
     if (existing) {
       const supabase = getSupabase();
-      const { data: editorialRows } = await supabase
+      let editorial: Array<{ title: string; url: string | null; summary: string; source: string; published_date: Date | null }> = [];
+      if (supabase) {
+        const { data: editorialRows } = await supabase
         .from("compound_editorial_reference")
         .select("title, summary, source, source_url, published_date")
         .eq("compound_id", existing.compound_id ?? "")
         .order("published_date", { ascending: false })
         .limit(5);
-      const editorial = (editorialRows ?? []).map((r) => ({
-        title: r.title,
-        url: r.source_url,
-        summary: r.summary ?? "",
-        source: r.source ?? "pharmacytimes",
-        published_date: r.published_date ? new Date(r.published_date) : null,
-      }));
+        editorial = (editorialRows ?? []).map((r) => ({
+          title: r.title,
+          url: r.source_url,
+          summary: r.summary ?? "",
+          source: r.source ?? "pharmacytimes",
+          published_date: r.published_date ? new Date(r.published_date) : null,
+        }));
+      }
       return Response.json({
         compound: { ...existing, editorial },
         generated: false,
@@ -69,10 +72,10 @@ export async function POST(request: NextRequest) {
       );
     }
     const compoundId = compound.compound_id;
-    if (compoundId && editorial.length > 0) {
-      const supabase = getSupabase();
+    const supabaseForWrite = getSupabase();
+    if (compoundId && editorial.length > 0 && supabaseForWrite) {
       for (const article of editorial) {
-        await supabase.from("compound_editorial_reference").insert({
+        await supabaseForWrite.from("compound_editorial_reference").insert({
           compound_id: compoundId,
           title: article.title,
           summary: article.summary || null,
