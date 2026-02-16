@@ -2,11 +2,21 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getCompoundBySlugFromSupabase } from "@/lib/data";
 import { getMockCompoundBySlug } from "@/lib/mock-compounds";
+import { runIngest } from "@/lib/run-ingest";
 import { fetchFDAPackages } from "@/lib/sources/fetchFDAPackages";
 import { DeckButton } from "./DeckButton";
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return x != null && typeof x === "object" && !Array.isArray(x);
+}
+
+function isCardEmpty(card: { mechanism_summary?: string | null; uses_summary?: string | null; safety_summary?: string | null } | null | undefined): boolean {
+  if (!card) return true;
+  return (
+    (card.mechanism_summary?.trim().length ?? 0) === 0 &&
+    (card.uses_summary?.trim().length ?? 0) === 0 &&
+    (card.safety_summary?.trim().length ?? 0) === 0
+  );
 }
 
 export default async function CompoundPage({
@@ -15,9 +25,14 @@ export default async function CompoundPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const compound =
+  let compound =
     (await getCompoundBySlugFromSupabase(slug)) ?? getMockCompoundBySlug(slug);
   if (!compound) notFound();
+  if (compound && isCardEmpty(compound.card)) {
+    await runIngest(compound.canonical_name);
+    const updated = await getCompoundBySlugFromSupabase(slug);
+    if (updated) compound = updated;
+  }
 
   const fdaPackages = await fetchFDAPackages({
     application_number: compound.regulatory?.fda_application_number ?? null,
@@ -54,6 +69,136 @@ export default async function CompoundPage({
         )}
 
         <div className="mt-8 space-y-6">
+          {/* Core card content first: mechanism, indications, uses, safety, PK */}
+          {card.mechanism_summary ? (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Mechanism</h2>
+              <p className="mt-1 text-gray-700">{card.mechanism_summary}</p>
+            </section>
+          ) : (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Mechanism</h2>
+              <p className="mt-1 text-gray-500 italic">Not yet available. Re-run ingest or check DailyMed label.</p>
+            </section>
+          )}
+
+          {(clinical.approved_indications as string[] | undefined)?.length ? (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Approved indications</h2>
+              <ul className="mt-2 list-inside list-disc text-gray-700">
+                {(clinical.approved_indications as string[]).map((ind, i) => (
+                  <li key={i}>{ind}</li>
+                ))}
+              </ul>
+            </section>
+          ) : (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Approved indications</h2>
+              <p className="mt-1 text-gray-500 italic">Not yet available.</p>
+            </section>
+          )}
+
+          {card.uses_summary ? (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Uses</h2>
+              <p className="mt-1 text-gray-700">{card.uses_summary}</p>
+            </section>
+          ) : (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Uses</h2>
+              <p className="mt-1 text-gray-500 italic">Not yet available.</p>
+            </section>
+          )}
+
+          {card.safety_summary ? (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Safety</h2>
+              <p className="mt-1 text-gray-700">{card.safety_summary}</p>
+            </section>
+          ) : (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Safety</h2>
+              <p className="mt-1 text-gray-500 italic">Not yet available.</p>
+            </section>
+          )}
+
+          {Object.keys(pk).length > 0 ? (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Pharmacokinetics</h2>
+              <ul className="mt-2 space-y-1 text-gray-700">
+                {pk.half_life_hours != null && (
+                  <li>Half-life: {Number(pk.half_life_hours) >= 24 ? `${(Number(pk.half_life_hours) / 24).toFixed(1)} days` : `${pk.half_life_hours} h`}</li>
+                )}
+                {pk.bioavailability_percent != null ? <li>Bioavailability: {Number(pk.bioavailability_percent)}%</li> : null}
+                {pk.metabolism ? <li>Metabolism: {String(pk.metabolism)}</li> : null}
+                {pk.blood_brain_barrier ? <li>Blood-brain barrier: {String(pk.blood_brain_barrier)}</li> : null}
+              </ul>
+            </section>
+          ) : (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Pharmacokinetics</h2>
+              <p className="mt-1 text-gray-500 italic">Not yet available.</p>
+            </section>
+          )}
+
+          {card.classification && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Classification</h2>
+              <p className="mt-1 text-gray-700">{card.classification}</p>
+            </section>
+          )}
+
+          {Object.keys(chemistry).length > 0 && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Chemistry</h2>
+              <ul className="mt-2 space-y-1 text-gray-700">
+                {chemistry.molecular_weight != null ? <li>Molecular weight: {Number(chemistry.molecular_weight)} Da</li> : null}
+                {chemistry.formula ? <li>Formula: {String(chemistry.formula)}</li> : null}
+              </ul>
+            </section>
+          )}
+
+          {Object.keys(adverseFreq).length > 0 && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Adverse effects (frequency)</h2>
+              <ul className="mt-2 space-y-1 text-gray-700">
+                {Object.entries(adverseFreq).map(([term, freq]) => (
+                  <li key={term}>
+                    <span className="capitalize">{term.replace(/_/g, " ")}</span>: {String(freq)}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {Object.keys(deckStats).length > 0 && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Deck stats</h2>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {Object.entries(deckStats).map(([k, v]) =>
+                  typeof v === "number" ? (
+                    <span key={k} className="rounded bg-gray-200 px-2 py-1 text-sm">
+                      {k.replace(/_/g, " ")}: {v}
+                    </span>
+                  ) : null
+                )}
+              </div>
+            </section>
+          )}
+          {card.deck_tags && card.deck_tags.length > 0 && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Tags</h2>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {card.deck_tags.map((t) => (
+                  <span key={t} className="rounded bg-blue-100 px-2 py-1 text-sm text-blue-800">
+                    {t}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Regulatory, evidence, editorial, sources after core card */}
           {(card.regulatory_summary || compound.regulatory) && (
             <section>
               <h2 className="text-lg font-semibold text-gray-900">Regulatory status</h2>
@@ -120,107 +265,6 @@ export default async function CompoundPage({
             </section>
           )}
 
-          {card.classification && (
-            <section>
-              <h2 className="text-lg font-semibold text-gray-900">Classification</h2>
-              <p className="mt-1 text-gray-700">{card.classification}</p>
-            </section>
-          )}
-
-          {Object.keys(pk).length > 0 && (
-            <section>
-              <h2 className="text-lg font-semibold text-gray-900">Pharmacokinetics</h2>
-              <ul className="mt-2 space-y-1 text-gray-700">
-                {pk.half_life_hours != null && (
-                  <li>Half-life: {Number(pk.half_life_hours) >= 24 ? `${(Number(pk.half_life_hours) / 24).toFixed(1)} days` : `${pk.half_life_hours} h`}</li>
-                )}
-                {pk.bioavailability_percent != null ? <li>Bioavailability: {Number(pk.bioavailability_percent)}%</li> : null}
-                {pk.metabolism ? <li>Metabolism: {String(pk.metabolism)}</li> : null}
-                {pk.blood_brain_barrier ? <li>Blood-brain barrier: {String(pk.blood_brain_barrier)}</li> : null}
-              </ul>
-            </section>
-          )}
-
-          {card.mechanism_summary && (
-            <section>
-              <h2 className="text-lg font-semibold text-gray-900">Mechanism</h2>
-              <p className="mt-1 text-gray-700">{card.mechanism_summary}</p>
-            </section>
-          )}
-
-          {(clinical.approved_indications as string[] | undefined)?.length ? (
-            <section>
-              <h2 className="text-lg font-semibold text-gray-900">Approved indications</h2>
-              <ul className="mt-2 list-inside list-disc text-gray-700">
-                {(clinical.approved_indications as string[]).map((ind, i) => (
-                  <li key={i}>{ind}</li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-          {card.uses_summary && (
-            <section>
-              <h2 className="text-lg font-semibold text-gray-900">Uses</h2>
-              <p className="mt-1 text-gray-700">{card.uses_summary}</p>
-            </section>
-          )}
-
-          {Object.keys(chemistry).length > 0 && (
-            <section>
-              <h2 className="text-lg font-semibold text-gray-900">Chemistry</h2>
-              <ul className="mt-2 space-y-1 text-gray-700">
-                {chemistry.molecular_weight != null ? <li>Molecular weight: {Number(chemistry.molecular_weight)} Da</li> : null}
-                {chemistry.formula ? <li>Formula: {String(chemistry.formula)}</li> : null}
-              </ul>
-            </section>
-          )}
-
-          {Object.keys(adverseFreq).length > 0 && (
-            <section>
-              <h2 className="text-lg font-semibold text-gray-900">Adverse effects (frequency)</h2>
-              <ul className="mt-2 space-y-1 text-gray-700">
-                {Object.entries(adverseFreq).map(([term, freq]) => (
-                  <li key={term}>
-                    <span className="capitalize">{term.replace(/_/g, " ")}</span>: {String(freq)}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          {card.safety_summary && (
-            <section>
-              <h2 className="text-lg font-semibold text-gray-900">Safety</h2>
-              <p className="mt-1 text-gray-700">{card.safety_summary}</p>
-            </section>
-          )}
-
-          {Object.keys(deckStats).length > 0 && (
-            <section>
-              <h2 className="text-lg font-semibold text-gray-900">Deck stats</h2>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {Object.entries(deckStats).map(([k, v]) =>
-                  typeof v === "number" ? (
-                    <span key={k} className="rounded bg-gray-200 px-2 py-1 text-sm">
-                      {k.replace(/_/g, " ")}: {v}
-                    </span>
-                  ) : null
-                )}
-              </div>
-            </section>
-          )}
-          {card.deck_tags && card.deck_tags.length > 0 && (
-            <section>
-              <h2 className="text-lg font-semibold text-gray-900">Tags</h2>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {card.deck_tags.map((t) => (
-                  <span key={t} className="rounded bg-blue-100 px-2 py-1 text-sm text-blue-800">
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
-
           {compound.editorial && compound.editorial.length > 0 && (
             <section>
               <h2 className="text-lg font-semibold text-gray-900">Editorial coverage</h2>
@@ -259,6 +303,15 @@ export default async function CompoundPage({
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+
+          {!compound.regulatory && (compound.studies?.length ?? 0) === 0 && (!compound.editorial?.length) && (
+            <section className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <h2 className="text-sm font-semibold text-amber-900">Why is regulatory / evidence / editorial missing?</h2>
+              <p className="mt-1 text-sm text-amber-800">
+                Migration tables (004 regulatory/studies, 005 editorial) are filled by <strong>ingest</strong>. Regulatory and studies come from openFDA + PubMed when you run ingest for this compound (e.g. ask for it by name in chat). Editorial (005) is not filled by ingest — it requires a separate sync (e.g. Pharmacy Times / Airtable). Re-run ingest from chat to refresh openFDA and PubMed data.
+              </p>
             </section>
           )}
         </div>

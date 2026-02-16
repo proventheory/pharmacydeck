@@ -215,6 +215,16 @@ export function HybridChat() {
             ))}
             {isLoading && (
               <div className="flex justify-start">
+                <div className="max-w-[90%] rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm text-gray-500">
+                  <span className="inline-flex items-center gap-2">
+                    <span className="size-2 animate-pulse rounded-full bg-gray-400" aria-hidden />
+                    Thinking… Loading compound data for your deck.
+                  </span>
+                </div>
+              </div>
+            )}
+            {isLoading && (
+              <div className="flex justify-start">
                 <div className="rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-gray-500">Thinking…</div>
               </div>
             )}

@@ -30,9 +30,9 @@ export function CompoundCard({
       {compound.classification && (
         <p className="mt-1 text-sm text-gray-600">{compound.classification}</p>
       )}
-      {compound.mechanism_summary && (
-        <p className="mt-2 line-clamp-2 text-sm text-gray-700">
-          {compound.mechanism_summary}
+      {(compound.mechanism_summary || compound.uses_summary) && (
+        <p className="mt-2 line-clamp-3 text-sm text-gray-700">
+          {compound.mechanism_summary ?? compound.uses_summary}
         </p>
       )}
     </Component>

@@ -71,6 +71,8 @@ Stores references for “Sources” / “Scientific backing” in the app.
 | title | Single line text |
 | published_date | Date |
 | credibility_score | Number |
+| **rxcui** | Single line text — compound identity; set when creating citation records |
+| **Compound Metadata** (linked record) | Link to Compound Metadata — associates each source row with one compound |
 
 ---
 
@@ -87,7 +89,7 @@ No required fields so we can create records via API.
 Add these columns if they don’t exist: compound_uuid (formula or text, unique id like cmp_9f3a2c1d), rxcui (single line text), pubchem_cid (number), last_updated_at (datetime), data_completeness_score (number 0–100), ingestion_version (number), is_published (checkbox). is_published must exist: false = still generating, true = ready for public. No required fields that would block API writes.
 
 3) Compound Sources (citations)
-Create a new table "Compound Sources" with: compound_uuid (text or link to Compound Metadata), source_type (single select: PubMed, FDA, DailyMed, PubChem, PharmacyTimes), source_url (url), title (single line text), published_date (date), credibility_score (number).
+Ensure "Compound Sources" has: compound_uuid (text or link to Compound Metadata), source_type (single select: PubMed, FDA, DailyMed, PubChem, PharmacyTimes), source_url (url), title (single line text), published_date (date), credibility_score (number), rxcui (single line text), and a linked record field to Compound Metadata so each source row is associated with one compound. No required fields.
 
 Do not add required Attachment or other required fields that would block API record creation.
 ```

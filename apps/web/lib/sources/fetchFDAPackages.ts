@@ -22,14 +22,10 @@ export interface FDAPackagesResult {
   submissions: Array<{ submission_type: string; submission_number: string; submission_date: string | null }>;
 }
 
-/**
- * Build approval package TOC URL for accessdata.fda.gov.
- * Pattern: .../nda/YEAR/NUMorig1s000TOC.cfm or .../bla/YEAR/NUMorig1s000TOC.cfm
- */
-function buildApprovalPackageTocUrl(applicationNumber: string, year: string): string {
+/** Drugs@FDA application overview page (reliable; includes links to approval docs). */
+function buildApplicationOverviewUrl(applicationNumber: string): string {
   const num = applicationNumber.replace(/^(NDA|ANDA|BLA)\s*/i, "").trim();
-  const type = applicationNumber.toUpperCase().startsWith("BLA") ? "bla" : "nda";
-  return `https://www.accessdata.fda.gov/drugsatfda_docs/${type}/${year}/${num}Orig1s000TOC.cfm`;
+  return `https://www.accessdata.fda.gov/scripts/cder/daf/index.cfm?event=overview.processAPI&ApplNo=${encodeURIComponent(num)}`;
 }
 
 /**
@@ -91,16 +87,15 @@ export async function fetchFDAPackages(options: {
       (app.products?.[0] as { approval_date?: string } | undefined)?.approval_date ??
       submissions.find((s) => /ORIG|SUPPL/i.test(s.submission_type))?.submission_date ??
       null;
-    const year = approvalDate ? approvalDate.slice(0, 4) : new Date().getFullYear().toString();
     const sponsorName = (app.products?.[0] as { sponsor_name?: string } | undefined)?.sponsor_name ?? null;
 
     const packages: FDAPackageDocument[] = [];
     const appNum = app.application_number ?? appNumber;
-    const tocUrl = buildApprovalPackageTocUrl(appNum, year);
+    const overviewUrl = buildApplicationOverviewUrl(appNum);
     packages.push({
       title: "Approval package (table of contents)",
       type: "toc",
-      url: tocUrl,
+      url: overviewUrl,
       date: approvalDate,
     });
 

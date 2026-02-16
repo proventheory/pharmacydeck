@@ -11,6 +11,7 @@ export interface DeckCompound {
     primary_class?: string | null;
     classification?: string | null;
     mechanism_summary?: string | null;
+    uses_summary?: string | null;
     study_count?: number | null;
     deck_stats?: Record<string, number> | null;
   };
@@ -32,7 +33,9 @@ export function DeckPanel({ deck }: { deck: DeckCompound[] }) {
     <div className="flex h-full flex-col border-l border-gray-200 bg-gray-50/80">
       <div className="border-b border-gray-200 px-4 py-2">
         <h2 className="text-sm font-semibold text-gray-700">Deck</h2>
-        <p className="text-xs text-gray-500">Cards from this session</p>
+        <p className="text-xs text-gray-500">
+          {deck.length === 0 ? "Cards from this session" : "Click a card for full details (mechanism, FDA, studies)"}
+        </p>
       </div>
       <div className="flex-1 overflow-y-auto p-3">
         {deck.length === 0 ? (
@@ -41,15 +44,17 @@ export function DeckPanel({ deck }: { deck: DeckCompound[] }) {
           <ul className="space-y-3">
             {deck.map((c) => (
               <li key={c.rxcui}>
-                <Link href={`/compound/${slugFrom(c)}`} className="block">
+                <Link href={`/compound/${slugFrom(c)}`} className="block group">
                   <CompoundCard
                     compound={{
                       rxcui: c.rxcui,
                       canonical_name: c.canonical_name,
                       classification: c.card?.primary_class ?? c.card?.classification ?? null,
                       mechanism_summary: c.card?.mechanism_summary ?? null,
+                      uses_summary: c.card?.uses_summary ?? null,
                     }}
                   />
+                  <span className="mt-1 block text-xs text-blue-600 group-hover:underline">View full card →</span>
                 </Link>
               </li>
             ))}
