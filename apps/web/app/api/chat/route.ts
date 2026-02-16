@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
         writer.write(formatDataStreamPart("tool_call", { toolCallId, toolName: "generateCompound", args: { query } }));
         writer.write(formatDataStreamPart("tool_result", { toolCallId, result: { type: "compound", data: result.data } }));
         writer.write(formatDataStreamPart("text", text));
-        writer.write(formatDataStreamPart("finish_step", { finishReason: "stop" }));
+        writer.write(formatDataStreamPart("finish_step", { finishReason: "stop", isContinued: false }));
         writer.write(formatDataStreamPart("finish_message", { finishReason: "stop" }));
       },
     });
