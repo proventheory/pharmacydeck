@@ -51,7 +51,6 @@ export async function POST(request: NextRequest) {
     const text = `**${data.canonical_name}** — loaded. Check the deck panel.\n\nSuggested follow-ups:\n- Compare with another GLP-1\n- See FDA label\n- What about half-life?`;
     const messageId = crypto.randomUUID();
     const toolCallId = crypto.randomUUID();
-    const query = (messages.filter((m) => m.role === "user").pop()?.content ?? "").trim();
     return createDataStreamResponse({
       execute: (writer) => {
         writer.write(formatDataStreamPart("start_step", { messageId }));
