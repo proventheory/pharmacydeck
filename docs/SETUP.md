@@ -36,7 +36,7 @@ If you already ran 001–004, run **005** only for the editorial layer.
 | Variable | Required? | Notes |
 |----------|-----------|--------|
 | `SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_URL` | **Yes** | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | **Yes** | For ingest and server writes. Do **not** use the anon key here. |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Yes** for chat ingest | For ingest and server writes. Do **not** use the anon key. If missing on Vercel, chat will show a clear error and suggestion chips; add this env var to enable compound lookup/ingest. |
 | `OPENAI_API_KEY` | **No** | Only for chat GPT and AI PK extraction. Omit for free operation. |
 
 ---
@@ -89,6 +89,8 @@ If you override in the dashboard, use:
 If the build fails with exit code 2, open the deployment’s **Build** log and find the first red error line (e.g. which of `database` tsc, `packbuilder` tsc, or `next build` failed and the exact message). That will narrow down the fix.
 
 The **live site** will only show the latest UI and API behavior after you **redeploy** from this repo.
+
+**Chat ingest on production:** For "Tell me about [compound]" to work, set **SUPABASE_SERVICE_ROLE_KEY** in Vercel (Project → Settings → Environment Variables). The service role bypasses RLS so the ingest pipeline can write to the `compound` table. Without it, users see a clear error and can retry with the suggestion chips.
 
 After you push and your host (e.g. Vercel) builds and deploys, you should see:
 
