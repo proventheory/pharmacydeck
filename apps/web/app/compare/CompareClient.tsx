@@ -4,6 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import type { CompoundWithCard } from "@/lib/data";
 
+function compoundHref(c: CompoundWithCard): string {
+  const slug = c.card.slug ?? c.canonical_name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+  return `/compound/${slug}`;
+}
+
 export function CompareClient({ compounds }: { compounds: CompoundWithCard[] }) {
   const [aRxcui, setARxcui] = useState(compounds[0]?.rxcui ?? "");
   const [bRxcui, setBRxcui] = useState(compounds[1]?.rxcui ?? "");
@@ -55,15 +60,19 @@ export function CompareClient({ compounds }: { compounds: CompoundWithCard[] }) 
           {compoundA ? (
             <>
               <h2 className="text-xl font-semibold text-gray-900">
-                <Link
-                  href={`/compound/${compoundA.canonical_name.toLowerCase().replace(/\s+/g, "-")}`}
-                  className="hover:underline"
-                >
+                <Link href={compoundHref(compoundA)} className="hover:underline">
                   {compoundA.canonical_name}
                 </Link>
               </h2>
               <p className="mt-1 text-xs text-gray-500">RxCUI {compoundA.rxcui}</p>
-              <p className="mt-2 text-sm text-gray-600">{compoundA.card.classification}</p>
+              {(compoundA.card.primary_class ?? compoundA.card.classification) && (
+                <p className="mt-2 text-sm font-medium text-gray-700">
+                  {compoundA.card.primary_class ?? compoundA.card.classification}
+                </p>
+              )}
+              {compoundA.card.molecule_type && (
+                <p className="mt-0.5 text-xs text-gray-500 capitalize">{compoundA.card.molecule_type.replace("_", " ")}</p>
+              )}
               <p className="mt-4 text-gray-700">{compoundA.card.mechanism_summary}</p>
               <p className="mt-4 text-gray-700">{compoundA.card.uses_summary}</p>
             </>
@@ -75,15 +84,19 @@ export function CompareClient({ compounds }: { compounds: CompoundWithCard[] }) 
           {compoundB ? (
             <>
               <h2 className="text-xl font-semibold text-gray-900">
-                <Link
-                  href={`/compound/${compoundB.canonical_name.toLowerCase().replace(/\s+/g, "-")}`}
-                  className="hover:underline"
-                >
+                <Link href={compoundHref(compoundB)} className="hover:underline">
                   {compoundB.canonical_name}
                 </Link>
               </h2>
               <p className="mt-1 text-xs text-gray-500">RxCUI {compoundB.rxcui}</p>
-              <p className="mt-2 text-sm text-gray-600">{compoundB.card.classification}</p>
+              {(compoundB.card.primary_class ?? compoundB.card.classification) && (
+                <p className="mt-2 text-sm font-medium text-gray-700">
+                  {compoundB.card.primary_class ?? compoundB.card.classification}
+                </p>
+              )}
+              {compoundB.card.molecule_type && (
+                <p className="mt-0.5 text-xs text-gray-500 capitalize">{compoundB.card.molecule_type.replace("_", " ")}</p>
+              )}
               <p className="mt-4 text-gray-700">{compoundB.card.mechanism_summary}</p>
               <p className="mt-4 text-gray-700">{compoundB.card.uses_summary}</p>
             </>

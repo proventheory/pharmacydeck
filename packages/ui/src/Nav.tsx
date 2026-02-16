@@ -39,6 +39,16 @@ export function Nav({ Link: LinkComponent = DefaultLink }: NavProps = {}) {
               My Deck
             </LinkComponent>
           </li>
+          <li>
+            <LinkComponent href="/chat" className="text-gray-600 hover:text-gray-900">
+              Chat
+            </LinkComponent>
+          </li>
+          <li>
+            <LinkComponent href="/cyberdeck" className="text-gray-600 hover:text-gray-900">
+              Cyberdeck
+            </LinkComponent>
+          </li>
         </ul>
       </div>
     </nav>

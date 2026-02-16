@@ -2,6 +2,12 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getCompoundBySlugFromSupabase } from "@/lib/data";
 import { getMockCompoundBySlug } from "@/lib/mock-compounds";
+import { fetchFDAPackages } from "@/lib/sources/fetchFDAPackages";
+import { DeckButton } from "./DeckButton";
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return x != null && typeof x === "object" && !Array.isArray(x);
+}
 
 export default async function CompoundPage({
   params,
@@ -13,7 +19,18 @@ export default async function CompoundPage({
     (await getCompoundBySlugFromSupabase(slug)) ?? getMockCompoundBySlug(slug);
   if (!compound) notFound();
 
+  const fdaPackages = await fetchFDAPackages({
+    application_number: compound.regulatory?.fda_application_number ?? null,
+    rxcui: compound.rxcui ?? null,
+    substance_name: compound.canonical_name ?? null,
+  });
+
   const { card } = compound;
+  const pk = isRecord(card.pharmacokinetics) ? card.pharmacokinetics : {};
+  const clinical = isRecord(card.clinical_profile) ? card.clinical_profile : {};
+  const chemistry = isRecord(card.chemistry_profile) ? card.chemistry_profile : {};
+  const deckStats = isRecord(card.deck_stats) ? card.deck_stats : {};
+  const adverseFreq = isRecord(card.adverse_effect_frequency) ? card.adverse_effect_frequency : {};
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -24,30 +41,150 @@ export default async function CompoundPage({
         <h1 className="mt-4 text-3xl font-bold text-gray-900">
           {compound.canonical_name}
         </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          RxCUI {compound.rxcui}
-        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
+          <span>RxCUI {compound.rxcui}</span>
+          {card.molecule_type && (
+            <span className="rounded bg-gray-200 px-1.5 py-0.5 capitalize">{card.molecule_type.replace("_", " ")}</span>
+          )}
+          {card.primary_class && <span>{card.primary_class}</span>}
+        </div>
+        <DeckButton rxcui={compound.rxcui} />
         {compound.description && (
           <p className="mt-2 text-gray-600">{compound.description}</p>
         )}
 
         <div className="mt-8 space-y-6">
+          {(card.regulatory_summary || compound.regulatory) && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Regulatory status</h2>
+              <p className="mt-1 text-gray-700">{card.regulatory_summary ?? null}</p>
+              {compound.regulatory && (
+                <ul className="mt-2 space-y-1 text-sm text-gray-600">
+                  {compound.regulatory.approval_date && (
+                    <li>Approval date: {compound.regulatory.approval_date}</li>
+                  )}
+                  {compound.regulatory.fda_application_number && (
+                    <li>FDA application: {compound.regulatory.fda_application_number}</li>
+                  )}
+                  {compound.regulatory.boxed_warning && <li>Boxed warning: Yes</li>}
+                  {compound.regulatory.rems_required && <li>REMS required: Yes</li>}
+                </ul>
+              )}
+              {fdaPackages.packages.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-sm font-medium text-gray-700">FDA approval package</p>
+                  <ul className="mt-1 space-y-1">
+                    {fdaPackages.packages.slice(0, 8).map((pkg, i) => (
+                      <li key={i}>
+                        <a
+                          href={pkg.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-blue-600 hover:underline"
+                        >
+                          {pkg.title}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
+
+          {(card.evidence_summary || (card.study_count != null && card.study_count > 0) || (compound.studies?.length ?? 0) > 0) && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Evidence</h2>
+              {card.evidence_summary && <p className="mt-1 text-gray-700">{card.evidence_summary}</p>}
+              {compound.studies && compound.studies.length > 0 && (
+                <ul className="mt-4 space-y-3">
+                  {compound.studies.slice(0, 5).map((s) => (
+                    <li key={s.id} className="rounded border border-gray-200 bg-white p-3">
+                      {s.pubmed_url ? (
+                        <a href={s.pubmed_url} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:underline">
+                          {s.title || `PubMed ${s.pubmed_id}`}
+                        </a>
+                      ) : (
+                        <span className="font-medium text-gray-900">{s.title || `PubMed ${s.pubmed_id}`}</span>
+                      )}
+                      {(s.journal || s.publication_date) && (
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          {[s.journal, s.publication_date].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
+                      {s.summary && <p className="mt-1 text-sm text-gray-600 line-clamp-2">{s.summary}</p>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
           {card.classification && (
             <section>
               <h2 className="text-lg font-semibold text-gray-900">Classification</h2>
               <p className="mt-1 text-gray-700">{card.classification}</p>
             </section>
           )}
+
+          {Object.keys(pk).length > 0 && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Pharmacokinetics</h2>
+              <ul className="mt-2 space-y-1 text-gray-700">
+                {pk.half_life_hours != null && (
+                  <li>Half-life: {Number(pk.half_life_hours) >= 24 ? `${(Number(pk.half_life_hours) / 24).toFixed(1)} days` : `${pk.half_life_hours} h`}</li>
+                )}
+                {pk.bioavailability_percent != null ? <li>Bioavailability: {Number(pk.bioavailability_percent)}%</li> : null}
+                {pk.metabolism ? <li>Metabolism: {String(pk.metabolism)}</li> : null}
+                {pk.blood_brain_barrier ? <li>Blood-brain barrier: {String(pk.blood_brain_barrier)}</li> : null}
+              </ul>
+            </section>
+          )}
+
           {card.mechanism_summary && (
             <section>
               <h2 className="text-lg font-semibold text-gray-900">Mechanism</h2>
               <p className="mt-1 text-gray-700">{card.mechanism_summary}</p>
             </section>
           )}
+
+          {(clinical.approved_indications as string[] | undefined)?.length ? (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Approved indications</h2>
+              <ul className="mt-2 list-inside list-disc text-gray-700">
+                {(clinical.approved_indications as string[]).map((ind, i) => (
+                  <li key={i}>{ind}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {card.uses_summary && (
             <section>
               <h2 className="text-lg font-semibold text-gray-900">Uses</h2>
               <p className="mt-1 text-gray-700">{card.uses_summary}</p>
+            </section>
+          )}
+
+          {Object.keys(chemistry).length > 0 && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Chemistry</h2>
+              <ul className="mt-2 space-y-1 text-gray-700">
+                {chemistry.molecular_weight != null ? <li>Molecular weight: {Number(chemistry.molecular_weight)} Da</li> : null}
+                {chemistry.formula ? <li>Formula: {String(chemistry.formula)}</li> : null}
+              </ul>
+            </section>
+          )}
+
+          {Object.keys(adverseFreq).length > 0 && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Adverse effects (frequency)</h2>
+              <ul className="mt-2 space-y-1 text-gray-700">
+                {Object.entries(adverseFreq).map(([term, freq]) => (
+                  <li key={term}>
+                    <span className="capitalize">{term.replace(/_/g, " ")}</span>: {String(freq)}
+                  </li>
+                ))}
+              </ul>
             </section>
           )}
           {card.safety_summary && (
@@ -56,6 +193,60 @@ export default async function CompoundPage({
               <p className="mt-1 text-gray-700">{card.safety_summary}</p>
             </section>
           )}
+
+          {Object.keys(deckStats).length > 0 && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Deck stats</h2>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {Object.entries(deckStats).map(([k, v]) =>
+                  typeof v === "number" ? (
+                    <span key={k} className="rounded bg-gray-200 px-2 py-1 text-sm">
+                      {k.replace(/_/g, " ")}: {v}
+                    </span>
+                  ) : null
+                )}
+              </div>
+            </section>
+          )}
+          {card.deck_tags && card.deck_tags.length > 0 && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Tags</h2>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {card.deck_tags.map((t) => (
+                  <span key={t} className="rounded bg-blue-100 px-2 py-1 text-sm text-blue-800">
+                    {t}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {compound.editorial && compound.editorial.length > 0 && (
+            <section>
+              <h2 className="text-lg font-semibold text-gray-900">Editorial coverage</h2>
+              <ul className="mt-2 space-y-3">
+                {compound.editorial.map((art, i) => (
+                  <li key={i} className="rounded border border-gray-200 bg-white p-3">
+                    <a
+                      href={art.url ?? "#"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-blue-600 hover:underline"
+                    >
+                      {art.title}
+                    </a>
+                    {art.published_date && (
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {art.source} · {new Date(art.published_date).toLocaleDateString()}
+                      </p>
+                    )}
+                    {art.summary && <p className="mt-1 text-sm text-gray-600 line-clamp-2">{art.summary}</p>}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           {card.source_links && card.source_links.length > 0 && (
             <section>
               <h2 className="text-lg font-semibold text-gray-900">Sources</h2>

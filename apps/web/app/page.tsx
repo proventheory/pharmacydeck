@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { CompoundCard } from "ui";
-import { SearchInput } from "ui";
 import { getCompoundsFromSupabase } from "@/lib/data";
 import { getAllMockCompounds } from "@/lib/mock-compounds";
+import { SearchClient } from "./search-client";
 
 export default async function Home() {
   const fromDb = await getCompoundsFromSupabase();
@@ -15,25 +15,23 @@ export default async function Home() {
         <p className="mt-2 text-gray-600">
           Pharmaceutical intelligence interface — explore compounds, compare, and build your deck.
         </p>
+        <p className="mt-1 text-sm text-gray-500">
+          Search below or use <Link href="/chat" className="text-blue-600 hover:underline">Chat</Link> to find and add compounds.
+        </p>
 
-        <div className="mt-8">
-          <SearchInput
-            placeholder="Search compounds…"
-            className="max-w-xl"
-          />
-        </div>
+        <SearchClient />
 
         <section className="mt-10">
           <h2 className="text-xl font-semibold text-gray-900">Trending compounds</h2>
           <ul className="mt-4 grid gap-4 sm:grid-cols-2">
             {trending.map((c) => (
               <li key={c.rxcui}>
-                <Link href={`/compound/${c.canonical_name.toLowerCase().replace(/\s+/g, "-")}`}>
+                <Link href={`/compound/${c.card.slug ?? c.canonical_name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`}>
                   <CompoundCard
                     compound={{
                       rxcui: c.rxcui,
                       canonical_name: c.canonical_name,
-                      classification: c.card.classification,
+                      classification: c.card.primary_class ?? c.card.classification,
                       mechanism_summary: c.card.mechanism_summary,
                     }}
                   />
