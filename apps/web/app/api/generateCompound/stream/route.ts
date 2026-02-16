@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getSupabase } from "database";
 import { getCompoundBySlugFromSupabase } from "@/lib/data";
-import { extractPharmacokineticsFromText } from "@/lib/ai/extractPharmacokinetics";
+import { extractPharmacokineticsFromText } from "pharma-ai";
 import { fetchPharmacyTimes } from "@/lib/sources/fetchPharmacyTimes";
 import { runIngest, slugFromCanonicalName } from "@/lib/run-ingest";
 

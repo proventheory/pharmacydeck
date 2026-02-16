@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { extractPharmacokineticsFromText } from "@/lib/ai/extractPharmacokinetics";
+import { extractPharmacokineticsFromText } from "pharma-ai";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;

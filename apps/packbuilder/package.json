@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "database": "workspace:*",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "pharma-ai": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

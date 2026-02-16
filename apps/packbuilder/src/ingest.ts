@@ -10,6 +10,11 @@ import type { LabelSnippetInput } from "./dailymed.js";
 import * as pubchem from "./pubchem.js";
 import * as fda from "./fda.js";
 import * as pubmed from "./pubmed.js";
+import * as chembl from "./chembl.js";
+import { extractPharmacokineticsFromText } from "pharma-ai";
+import * as atc from "./atc.js";
+import * as clinicaltrials from "./clinicaltrials.js";
+import * as ndc from "./ndc.js";
 
 const SECTION_TYPE_MAP: Record<string, string> = {
   description: "description",
@@ -105,6 +110,40 @@ function inferDeckTags(primaryClass: string | null, usesSummary: string | null):
   return Array.from(tags);
 }
 
+/** Extract candidate drug names from drug_interactions section text for DDI resolution. */
+function parseDrugInteractionCandidates(text: string): string[] {
+  if (!text?.trim()) return [];
+  const names = new Set<string>();
+  const lines = text.split(/\n+/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length < 2) continue;
+    const colon = trimmed.indexOf(":");
+    const openParen = trimmed.indexOf("(");
+    let name: string;
+    if (colon > 0) {
+      name = trimmed.slice(0, colon).trim();
+    } else if (openParen > 0) {
+      name = trimmed.slice(0, openParen).trim();
+    } else {
+      const m = trimmed.match(/^(?:concomitant\s+use\s+of\s+)?([A-Za-z][A-Za-z0-9\s\-]+?)(?:\s+may|\s+can|\s+should|$)/i);
+      name = m ? m[1].trim() : trimmed.slice(0, 80).trim();
+    }
+    if (name && name.length >= 2 && name.length <= 120 && !/^(major|moderate|minor|see|avoid|use)\b/i.test(name)) {
+      names.add(name.replace(/\s+/g, " ").trim());
+    }
+  }
+  return Array.from(names).slice(0, 30);
+}
+
+function inferSeverity(text: string): "major" | "moderate" | "minor" | "unknown" {
+  const lower = text.toLowerCase();
+  if (/\bmajor\b|contraindicated|avoid\s+combination\b/.test(lower)) return "major";
+  if (/\bmoderate\b|caution\b|monitor\b/.test(lower)) return "moderate";
+  if (/\bminor\b/.test(lower)) return "minor";
+  return "unknown";
+}
+
 function buildDeckStats(primaryClass: string | null, moleculeType: string | null): Record<string, number> {
   const stats: Record<string, number> = {};
   if (primaryClass) {
@@ -176,6 +215,10 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
     }
     if (!compoundRow) throw new Error("compound: no row returned");
     const compound_id = compoundRow.id;
+
+    await supabase
+      .from("compound_identifier")
+      .upsert({ compound_id, id_type: "rxcui", id_value: rxcui, source: "rxnorm" }, { onConflict: "compound_id,id_type" });
 
     await supabase.from("compound_synonym").delete().eq("compound_id", compound_id);
     if (synonyms.length > 0) {
@@ -249,6 +292,13 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
           }))
         );
       }
+      const drugGroup =
+        fdaResult.regulatory.approval_status === "approved"
+          ? "approved"
+          : null;
+      if (drugGroup) {
+        await supabase.from("compound").update({ drug_group: drugGroup, updated_at: new Date().toISOString() }).eq("id", compound_id);
+      }
     }
 
     if (pubmedStudies.length > 0) {
@@ -274,6 +324,7 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
     }
 
     if (pubchemResult) {
+      const structureUrls = pubchem.getStructureUrlsForCid(pubchemResult.cid);
       await supabase.from("compound_pubchem").upsert(
         {
           compound_id,
@@ -282,17 +333,219 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
           molecular_weight: pubchemResult.molecular_weight != null ? String(pubchemResult.molecular_weight) : null,
           smiles: pubchemResult.smiles ?? null,
           inchi_key: pubchemResult.inchi_key ?? null,
+          structure_3d_url: structureUrls.structure_3d_url,
+          sdf_url: structureUrls.sdf_url,
+          mol_url: structureUrls.mol_url,
         },
         { onConflict: "compound_id" }
       );
+      await supabase
+        .from("compound_identifier")
+        .upsert(
+          { compound_id, id_type: "pubchem_cid", id_value: String(pubchemResult.cid), source: "pubchem" },
+          { onConflict: "compound_id,id_type" }
+        );
+    }
+
+    // ChEMBL drug–target: fetch targets and compound_target links; collect names for card
+    let mechanismTargetNames: string[] = [];
+    try {
+      const compoundTargets = await chembl.fetchCompoundTargets(canonical_name, rxcui);
+      for (const row of compoundTargets) {
+        const targetRow = {
+          type: row.target.type,
+          uniprot_id: row.target.uniprot_id ?? null,
+          chembl_id: row.target.chembl_id,
+          name: row.target.name,
+          gene_symbol: row.target.gene_symbol ?? null,
+          species: row.target.species ?? null,
+          source: row.target.source,
+          updated_at: new Date().toISOString(),
+        };
+        const { data: targetData } =
+          row.target.uniprot_id != null
+            ? await supabase.from("target").upsert(targetRow, { onConflict: "uniprot_id" }).select("id").single()
+            : await supabase.from("target").upsert(targetRow, { onConflict: "chembl_id" }).select("id").single();
+        const target_id = targetData?.id;
+        if (target_id) {
+          await supabase
+            .from("compound_target")
+            .upsert(
+              {
+                compound_id,
+                target_id,
+                action: row.action,
+                source: "chembl",
+                source_url: row.source_url ?? null,
+              },
+              { onConflict: "compound_id,target_id" }
+            );
+          mechanismTargetNames.push(row.target.name);
+        }
+      }
+      mechanismTargetNames = [...new Set(mechanismTargetNames)].slice(0, 50);
+    } catch (_) {
+      // ChEMBL optional: do not fail ingest
+    }
+
+    let interactionCount: number | null = null;
+    try {
+      const interactionSnippet = labelSnippets.find((s) => /drug_interaction/i.test(s.section))?.text;
+      if (interactionSnippet) {
+        const candidates = parseDrugInteractionCandidates(interactionSnippet);
+        const severity = inferSeverity(interactionSnippet);
+        const description = interactionSnippet.slice(0, 5000);
+        for (const candidateName of candidates) {
+          const otherRxcui = await rxnorm.findRxcuiByString(candidateName);
+          if (!otherRxcui || otherRxcui === rxcui) continue;
+          const { data: otherCompound } = await supabase.from("compound").select("id").eq("rxcui", otherRxcui).limit(1).single();
+          if (!otherCompound?.id) continue;
+          const idA = compound_id < otherCompound.id ? compound_id : otherCompound.id;
+          const idB = compound_id < otherCompound.id ? otherCompound.id : compound_id;
+          await supabase.from("compound_interaction").upsert(
+            {
+              compound_id_a: idA,
+              compound_id_b: idB,
+              severity,
+              description,
+              mechanism: null,
+              management: null,
+              source: "dailymed",
+            },
+            { onConflict: "compound_id_a,compound_id_b" }
+          );
+        }
+        const { count } = await supabase
+          .from("compound_interaction")
+          .select("id", { count: "exact", head: true })
+          .or(`compound_id_a.eq.${compound_id},compound_id_b.eq.${compound_id}`);
+        interactionCount = count ?? null;
+      }
+    } catch (_) {
+      // DDI parse optional
+    }
+
+    try {
+      const atcRows = await atc.fetchAtcForRxcui(rxcui);
+      if (atcRows.length > 0) {
+        await supabase.from("compound_atc").delete().eq("compound_id", compound_id);
+        await supabase.from("compound_atc").insert(
+          atcRows.map((row) => ({
+            compound_id,
+            atc_code: row.atc_code,
+            atc_name: row.atc_name,
+            level: row.level,
+            source: "rxclass",
+          }))
+        );
+      }
+    } catch (_) {
+      // ATC optional
+    }
+
+    try {
+      const trials = await clinicaltrials.fetchTrialsForDrug(canonical_name, 15);
+      if (trials.length > 0) {
+        for (const t of trials) {
+          await supabase
+            .from("compound_trial")
+            .upsert(
+              {
+                compound_id,
+                nct_id: t.nct_id,
+                title: t.title,
+                phase: t.phase,
+                status: t.status,
+                conditions: t.conditions,
+                source_url: t.source_url,
+              },
+              { onConflict: "compound_id,nct_id" }
+            );
+        }
+      }
+    } catch (_) {
+      // ClinicalTrials optional
+    }
+
+    try {
+      const products = await ndc.fetchNdcProductsForSubstance(canonical_name, 25);
+      if (products.length > 0) {
+        await supabase.from("compound_product").delete().eq("compound_id", compound_id);
+        await supabase.from("compound_product").insert(
+          products.map((p) => ({
+            compound_id,
+            ndc: p.ndc,
+            product_ndc: p.product_ndc,
+            dosage_form: p.dosage_form,
+            strength: p.strength,
+            manufacturer: p.manufacturer,
+            source: "openfda",
+          }))
+        );
+      }
+    } catch (_) {
+      // NDC products optional
     }
 
     const slug = canonical_name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     const primaryClass = inferPrimaryClass(mechanismSummary ?? usesSummary ?? "");
     const moleculeType = inferMoleculeType(pubchemResult?.molecular_weight);
-    const { pharmacokinetics, pharmacodynamics } = extractKineticsFromSnippets(labelSnippets);
-    const clinicalProfile = buildClinicalProfile(labelSnippets, usesSummary);
+    let { pharmacokinetics, pharmacodynamics } = extractKineticsFromSnippets(labelSnippets);
     const adverseFrequency = buildAdverseFrequency(labelSnippets, safetySummary);
+    try {
+      if (Object.keys(adverseFrequency).length > 0) {
+        await supabase.from("compound_adverse_effect").delete().eq("compound_id", compound_id);
+        await supabase.from("compound_adverse_effect").insert(
+          Object.entries(adverseFrequency).map(([effect_term, frequency]) => ({
+            compound_id,
+            effect_term,
+            frequency,
+            severity: null,
+            source: "dailymed",
+          }))
+        );
+      }
+    } catch (_) {
+      // adverse effect table optional
+    }
+    if (process.env.OPENAI_API_KEY || process.env.FULL_PK) {
+      try {
+        const pkSections = labelSnippets
+          .filter((s) => /clinical_pharmacology|dosage_and_administration|mechanism_of_action/i.test(s.section))
+          .map((s) => s.text)
+          .join("\n\n");
+        if (pkSections.trim()) {
+          const extracted = await extractPharmacokineticsFromText(pkSections);
+          const merged: Record<string, unknown> = { ...pharmacokinetics };
+          for (const [k, v] of Object.entries(extracted)) {
+            if (v != null && k !== "other") merged[k] = v;
+          }
+          if ((extracted as { other?: Record<string, unknown> }).other) {
+            Object.assign(merged, (extracted as { other?: Record<string, unknown> }).other);
+          }
+          pharmacokinetics = merged;
+        }
+      } catch (_) {
+        // Keep regex-only PK
+      }
+    }
+    const clinicalProfile = buildClinicalProfile(labelSnippets, usesSummary);
+    try {
+      const approved = (clinicalProfile as { approved_indications?: string[] }).approved_indications ?? [];
+      if (approved.length > 0) {
+        await supabase.from("compound_indication").delete().eq("compound_id", compound_id);
+        await supabase.from("compound_indication").insert(
+          approved.map((condition_name_or_code) => ({
+            compound_id,
+            condition_name_or_code,
+            source: "dailymed",
+            approved: true,
+          }))
+        );
+      }
+    } catch (_) {
+      // compound_indication optional
+    }
     const deckTags = inferDeckTags(primaryClass, usesSummary);
     const deckStats = buildDeckStats(primaryClass, moleculeType);
     const regulatorySummary =
@@ -332,7 +585,7 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
       secondary_classes: [],
       route_forms: [],
       mechanism_summary: mechanismSummary,
-      mechanism_targets: [],
+      mechanism_targets: mechanismTargetNames,
       mechanism_type: null,
       uses_summary: usesSummary,
       safety_summary: safetySummary,
@@ -342,7 +595,7 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
       adverse_effect_frequency: adverseFrequency,
       chemistry_profile: pubchemResult?.chemistry_profile ?? {},
       interaction_summary: null,
-      interactions_count: null,
+      interactions_count: interactionCount ?? null,
       deck_stats: deckStats,
       deck_tags: deckTags,
       approval_year: null,

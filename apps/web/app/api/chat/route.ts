@@ -9,6 +9,11 @@ import { buildSystemPromptWithContext } from "@/lib/chat-prompts";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+/** Topic words that are not compound names — avoid treating "X mechanism and indications" as compare. */
+const TOPIC_WORDS = new Set(
+  "mechanism indications safety pharmacology dosing half-life interactions contraindications side effects uses summary".split(/\s+/)
+);
+
 /** If the query asks to compare two drugs, return [name1, name2]; otherwise null. */
 function parseCompareQuery(query: string): string[] | null {
   const q = query.trim();
@@ -17,6 +22,7 @@ function parseCompareQuery(query: string): string[] | null {
   if (andMatch) {
     const a = andMatch[1].trim();
     const b = andMatch[2].trim();
+    if (b.length > 0 && TOPIC_WORDS.has(b.toLowerCase())) return null;
     if (a.length > 0 && b.length > 0 && a.length < 50 && b.length < 50) return [a, b];
   }
   const vsMatch = q.match(/compare\s+(.+?)\s+vs\.?\s+(.+)/i) ?? q.match(/compare\s+(.+?)\s+versus\s+(.+)/i) ?? q.match(/^(.+?)\s+vs\.?\s+(.+)$/i);
@@ -25,6 +31,26 @@ function parseCompareQuery(query: string): string[] | null {
     const b = vsMatch[2].trim();
     if (a.length > 0 && b.length > 0 && a.length < 50 && b.length < 50) return [a, b];
   }
+  return null;
+}
+
+/** Extract a single compound name from a question so we can look it up and add a card. */
+function extractCompoundNameFromQuery(query: string): string | null {
+  const q = query.trim();
+  if (q.length > 100) return null;
+  const lower = q.toLowerCase();
+  let name: string | null = null;
+  if (/^what(?:'s| is)\s+(?:the\s+)?(?:drug\s+)?(.+?)\??\s*$/i.test(q)) {
+    name = q.replace(/^what(?:'s| is)\s+(?:the\s+)?(?:drug\s+)?/i, "").replace(/\??\s*$/, "").trim();
+  } else if (/^tell me about\s+(.+?)(?:\.|\?)?\s*$/i.test(q)) {
+    name = q.replace(/^tell me about\s+/i, "").replace(/[.?]\s*$/, "").trim();
+  } else if (/^what do you know about\s+(.+?)\??\s*$/i.test(q)) {
+    name = q.replace(/^what do you know about\s+/i, "").replace(/\??\s*$/, "").trim();
+  } else if (/^(.+?)\s+(?:mechanism|indications|safety|pharmacology|dosing|side effects|interactions)/i.test(q)) {
+    const m = q.match(/^(.+?)\s+(?:mechanism|indications|safety|pharmacology|dosing|side effects|interactions)/i);
+    name = m ? m[1].trim() : null;
+  }
+  if (name && name.length >= 2 && name.length <= 60) return name;
   return null;
 }
 
@@ -138,13 +164,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Without an API key we only look up compounds by name. Questions like "See FDA label" or "What about half-life?" are not compound names.
+    // Without an API key we look up compounds by name. Accept bare names or extract from "What is X?", "Tell me about X", "X mechanism and indications".
     const looksLikeCompoundName =
       query.length <= 80 &&
       !/^(what|where|when|why|how|see|show|compare|tell me about|is|does|can)\b/i.test(query) &&
       !query.includes("?");
+    const extractedName = extractCompoundNameFromQuery(query);
+    const compoundNameToFetch = looksLikeCompoundName ? query : extractedName ?? null;
 
-    if (!looksLikeCompoundName) {
+    if (!compoundNameToFetch) {
       const text =
         "I can only look up **compounds by name** in this mode. To see FDA label, half-life, mechanism, and studies, **click a card in the deck** — that opens the full compound page.\n\nOr ask for another compound by name:\n- Try tirzepatide\n- Try metformin\n- Try ozempic";
       return createDataStreamResponse({
@@ -155,7 +183,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const result = await fetchOrGenerateCompound(query);
+    const result = await fetchOrGenerateCompound(compoundNameToFetch);
     if (result.type === "error")
       return Response.json({ error: result.error, compound: null }, { status: 404 });
     const data = result.data as { canonical_name?: string };
@@ -166,7 +194,7 @@ export async function POST(request: NextRequest) {
     return createDataStreamResponse({
       execute: (writer) => {
         writer.write(formatDataStreamPart("start_step", { messageId }));
-        writer.write(formatDataStreamPart("tool_call", { toolCallId, toolName: "generateCompound", args: { query } }));
+        writer.write(formatDataStreamPart("tool_call", { toolCallId, toolName: "generateCompound", args: { query: compoundNameToFetch } }));
         writer.write(formatDataStreamPart("tool_result", { toolCallId, result: { type: "compound", data: result.data } }));
         writer.write(formatDataStreamPart("text", text));
         writer.write(formatDataStreamPart("finish_step", { finishReason: "stop", isContinued: false }));
@@ -225,6 +253,10 @@ export async function POST(request: NextRequest) {
 
   const systemPrompt = buildSystemPromptWithContext(context);
 
+  const baseUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+
   const result = streamText({
     model: openai("gpt-4o-mini"),
     system: systemPrompt,
@@ -239,6 +271,31 @@ export async function POST(request: NextRequest) {
           const out = await fetchOrGenerateCompound(query.trim());
           if (out.type === "error") return { type: "error", error: out.error };
           return { type: "compound", data: out.data };
+        },
+      }),
+      discoverySearch: tool({
+        description:
+          "Search/browse compounds by drug group (e.g. approved, investigational, experimental) and/or target type (target, enzyme, transporter, carrier). Use when the user asks for lists like 'approved drugs that target enzymes', 'drugs in development', 'which compounds target transporters'.",
+        parameters: z.object({
+          drug_group: z
+            .string()
+            .optional()
+            .describe("Filter by drug_group: approved, experimental, nutraceutical, illicit, withdrawn, investigational, vet_approved"),
+          target_type: z
+            .string()
+            .optional()
+            .describe("Filter by target type: target, enzyme, transporter, carrier"),
+          limit: z.number().min(1).max(100).optional().describe("Max number of compounds to return (default 20)"),
+        }),
+        execute: async ({ drug_group, target_type, limit }) => {
+          const params = new URLSearchParams();
+          if (drug_group) params.set("drug_group", drug_group);
+          if (target_type) params.set("target_type", target_type);
+          if (limit != null) params.set("limit", String(limit));
+          const res = await fetch(`${baseUrl}/api/discovery?${params.toString()}`);
+          if (!res.ok) return { error: "Discovery API failed", compounds: [] };
+          const data = (await res.json()) as { compounds?: unknown[]; total?: number };
+          return { compounds: data.compounds ?? [], total: data.total ?? 0 };
         },
       }),
     },

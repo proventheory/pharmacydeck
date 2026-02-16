@@ -89,7 +89,7 @@ function fallbackExtract(text: string): ExtractedPharmacokinetics {
   );
   if (halfLifeMatch) {
     pk.half_life_hours = parseFloat(halfLifeMatch[1]);
-    if (halfLifeMatch[0].toLowerCase().includes("day")) pk.half_life_hours *= 24;
+    if (halfLifeMatch[0].toLowerCase().includes("day")) pk.half_life_hours! *= 24;
     if (halfLifeMatch[2] && /term|eff|apparent/i.test(halfLifeMatch[2])) pk.half_life_note = halfLifeMatch[2];
   }
 

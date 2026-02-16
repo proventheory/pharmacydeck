@@ -15,6 +15,21 @@ export interface PubChemResult {
   chemistry_profile: Record<string, unknown>;
 }
 
+const PUGCID_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid";
+
+/** Return 3D/SDF/MOL URLs for a PubChem CID (for visualization). */
+export function getStructureUrlsForCid(cid: string): {
+  structure_3d_url: string;
+  sdf_url: string;
+  mol_url: string;
+} {
+  return {
+    structure_3d_url: `${PUGCID_BASE}/${cid}/record/SDF/?record_type=3d`,
+    sdf_url: `${PUGCID_BASE}/${cid}/SDF`,
+    mol_url: `${PUGCID_BASE}/${cid}/record/MOL`,
+  };
+}
+
 export async function fetchPubChemForRxcui(
   _rxcui: string,
   canonicalName: string
