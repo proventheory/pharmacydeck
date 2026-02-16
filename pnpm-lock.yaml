@@ -16,6 +16,9 @@ importers:
       dotenv:
         specifier: ^16.4.5
         version: 16.6.1
+      pharma-ai:
+        specifier: workspace:*
+        version: link:../../packages/pharma-ai
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -53,6 +56,9 @@ importers:
       packbuilder:
         specifier: workspace:*
         version: link:../packbuilder
+      pharma-ai:
+        specifier: workspace:*
+        version: link:../../packages/pharma-ai
       react:
         specifier: ^19.0.0
         version: 19.2.4
@@ -108,6 +114,25 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.47.0
         version: 2.95.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.11
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/pharma-ai:
+    dependencies:
+      '@ai-sdk/openai':
+        specifier: ^1.0.0
+        version: 1.3.24(zod@3.25.76)
+      ai:
+        specifier: ^4.0.0
+        version: 4.3.19(react@19.2.4)(zod@3.25.76)
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
