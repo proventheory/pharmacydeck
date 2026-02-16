@@ -97,10 +97,12 @@ function CompoundCompareCard({
             {pk.bioavailability_percent != null && (
               <li>Bioavailability: {Number(pk.bioavailability_percent)}%</li>
             )}
-            {pk.metabolism && <li>Metabolism: {String(pk.metabolism)}</li>}
-            {pk.blood_brain_barrier && (
+            {pk.metabolism != null && pk.metabolism !== "" ? (
+              <li>Metabolism: {String(pk.metabolism)}</li>
+            ) : null}
+            {pk.blood_brain_barrier != null && pk.blood_brain_barrier !== "" ? (
               <li>Blood-brain barrier: {String(pk.blood_brain_barrier)}</li>
-            )}
+            ) : null}
           </ul>
         ) : null}
       </Section>
@@ -111,7 +113,9 @@ function CompoundCompareCard({
             {chemistry.molecular_weight != null && (
               <li>Molecular weight: {Number(chemistry.molecular_weight)} Da</li>
             )}
-            {chemistry.formula && <li>Formula: {String(chemistry.formula)}</li>}
+            {chemistry.formula != null && chemistry.formula !== "" ? (
+              <li>Formula: {String(chemistry.formula)}</li>
+            ) : null}
           </ul>
         ) : null}
       </Section>

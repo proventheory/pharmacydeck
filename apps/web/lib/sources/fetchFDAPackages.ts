@@ -22,10 +22,10 @@ export interface FDAPackagesResult {
   submissions: Array<{ submission_type: string; submission_number: string; submission_date: string | null }>;
 }
 
-/** Drugs@FDA application overview page (reliable; includes links to approval docs). */
+/** Drugs@FDA application overview (same params as used on FDA TOC pages). */
 function buildApplicationOverviewUrl(applicationNumber: string): string {
   const num = applicationNumber.replace(/^(NDA|ANDA|BLA)\s*/i, "").trim();
-  return `https://www.accessdata.fda.gov/scripts/cder/daf/index.cfm?event=overview.processAPI&ApplNo=${encodeURIComponent(num)}`;
+  return `https://www.accessdata.fda.gov/scripts/cder/daf/index.cfm?event=overview.process&varApplNo=${encodeURIComponent(num)}`;
 }
 
 /**
@@ -91,11 +91,22 @@ export async function fetchFDAPackages(options: {
 
     const packages: FDAPackageDocument[] = [];
     const appNum = app.application_number ?? appNumber;
-    const overviewUrl = buildApplicationOverviewUrl(appNum);
+
+    // Prefer real TOC HTML from API (reliable); fallback to Drugs@FDA overview page
+    let tocUrl: string | null = null;
+    for (const sub of app.submissions ?? []) {
+      const docs = (sub.application_docs ?? []) as Array<{ url?: string }>;
+      const toc = docs.find((d) => d.url && /TOC\.html$/i.test(d.url));
+      if (toc?.url) {
+        tocUrl = toc.url;
+        break;
+      }
+    }
+    if (!tocUrl) tocUrl = buildApplicationOverviewUrl(appNum);
     packages.push({
       title: "Approval package (table of contents)",
       type: "toc",
-      url: overviewUrl,
+      url: tocUrl,
       date: approvalDate,
     });
 
@@ -114,9 +125,10 @@ export async function fetchFDAPackages(options: {
     for (const sub of app.submissions ?? []) {
       const docs = (sub.application_docs ?? []) as Array<{ title?: string; url?: string; type?: string }>;
       for (const doc of docs.slice(0, 5)) {
-        if (doc.url && doc.title && !packages.some((p) => p.url === doc.url)) {
+        if (!doc.url || /TOC\.html$/i.test(doc.url)) continue; // TOC already added as first package
+        if (!packages.some((p) => p.url === doc.url)) {
           packages.push({
-            title: doc.title,
+            title: doc.title ?? "Document",
             type: (doc.type as string) ?? sub.submission_type ?? "document",
             url: doc.url,
             date: sub.submission_date ?? null,
