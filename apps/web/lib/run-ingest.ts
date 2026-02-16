@@ -12,7 +12,8 @@ export interface IngestResult {
 }
 
 export async function runIngest(inputName: string): Promise<IngestResult> {
-  const mod = await import("packbuilder");
+  // Resolved at runtime so Next build does not need to resolve workspace package
+  const mod = await import(/* webpackIgnore: true */ "packbuilder");
   return mod.ingestCompound(inputName);
 }
 
