@@ -75,6 +75,8 @@ Requires Supabase env (same as above). Writes `pharmacydeck.db` and copies to `a
 
 ## Deploying to production (e.g. pharmacydeck.com)
 
+**Vercel:** In Project Settings → General, set **Root Directory** to the **repository root** (leave empty or `.`). Do **not** set it to `apps/web`. The repo root `vercel.json` runs `pnpm install` and `pnpm run build` from the monorepo root and uses `apps/web/.next` as the output. If Root Directory is `apps/web`, the build uses `apps/web/vercel.json` and runs `cd ../.. && pnpm install` / `cd ../.. && pnpm --filter web build`; that can fail depending on how Vercel mounts the repo.
+
 The **live site** will only show the latest UI and API behavior after you **redeploy** from this repo.
 
 After you push and your host (e.g. Vercel) builds and deploys, you should see:
