@@ -1,0 +1,47 @@
+/**
+ * PharmacyDeck design tokens — shared across web, iOS, cyberdeck.
+ * Use CSS variables in Tailwind or raw CSS.
+ */
+:root {
+  /* Colors */
+  --pd-color-bg: #f9fafb;
+  --pd-color-bg-card: #ffffff;
+  --pd-color-border: #e5e7eb;
+  --pd-color-border-hover: #d1d5db;
+  --pd-color-text: #111827;
+  --pd-color-text-muted: #6b7280;
+  --pd-color-text-subtle: #9ca3af;
+  --pd-color-accent: #2563eb;
+  --pd-color-accent-hover: #1d4ed8;
+  --pd-color-success: #059669;
+  --pd-color-warning: #d97706;
+  --pd-color-error: #dc2626;
+
+  /* Typography */
+  --pd-font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  --pd-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --pd-text-xs: 0.75rem;
+  --pd-text-sm: 0.875rem;
+  --pd-text-base: 1rem;
+  --pd-text-lg: 1.125rem;
+  --pd-text-xl: 1.25rem;
+  --pd-text-2xl: 1.5rem;
+  --pd-text-3xl: 1.875rem;
+  --pd-font-medium: 500;
+  --pd-font-semibold: 600;
+  --pd-font-bold: 700;
+
+  /* Spacing */
+  --pd-space-1: 0.25rem;
+  --pd-space-2: 0.5rem;
+  --pd-space-3: 0.75rem;
+  --pd-space-4: 1rem;
+  --pd-space-6: 1.5rem;
+  --pd-space-8: 2rem;
+  --pd-space-10: 2.5rem;
+
+  /* Radius & shadow */
+  --pd-radius: 0.5rem;
+  --pd-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --pd-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}

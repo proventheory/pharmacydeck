@@ -5,6 +5,7 @@
  */
 import "dotenv/config";
 import { ingestCompound } from "./ingest.js";
+export { ingestCompound };
 
 const DEFAULT_LIST = [
   "Semaglutide",

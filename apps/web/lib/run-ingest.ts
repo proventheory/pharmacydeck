@@ -12,7 +12,7 @@ export interface IngestResult {
 }
 
 export async function runIngest(inputName: string): Promise<IngestResult> {
-  const mod = await import("packbuilder/ingest");
+  const mod = await import("packbuilder");
   return mod.ingestCompound(inputName);
 }
 
