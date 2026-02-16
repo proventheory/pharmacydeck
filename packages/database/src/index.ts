@@ -1,2 +1,2 @@
 export * from "./types.js";
-export { getSupabase } from "./client.js";
+export { getSupabase, getSupabaseServiceRole } from "./client.js";

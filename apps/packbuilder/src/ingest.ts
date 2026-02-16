@@ -3,7 +3,7 @@
  * All tables key off compound.id (uuid); compound.rxcui is unique for lookups.
  */
 
-import { getSupabase } from "database";
+import { getSupabaseServiceRole } from "database";
 import * as rxnorm from "./rxnorm.js";
 import * as dailymed from "./dailymed.js";
 import type { LabelSnippetInput } from "./dailymed.js";
@@ -131,9 +131,9 @@ export interface IngestResult {
 }
 
 export async function ingestCompound(inputName: string): Promise<IngestResult> {
-  const supabase = getSupabase();
+  const supabase = getSupabaseServiceRole();
   if (!supabase) {
-    return { rxcui: "", canonical_name: inputName, ok: false, error: "Supabase URL and key must be set (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) for ingest." };
+    return { rxcui: "", canonical_name: inputName, ok: false, error: "Supabase URL and service role key must be set (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) for ingest. The anon key cannot write to compound." };
   }
 
   const rxcui = await rxnorm.findRxcuiByString(inputName);
