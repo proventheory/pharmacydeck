@@ -2,9 +2,9 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getCompoundBySlugFromSupabase } from "@/lib/data";
 import { getMockCompoundBySlug } from "@/lib/mock-compounds";
-import { runIngest } from "@/lib/run-ingest";
 import { fetchFDAPackages } from "@/lib/sources/fetchFDAPackages";
 import { DeckButton } from "./DeckButton";
+import { LoadFullDataButton } from "./LoadFullDataButton";
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return x != null && typeof x === "object" && !Array.isArray(x);
@@ -25,14 +25,10 @@ export default async function CompoundPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  let compound =
+  const compound =
     (await getCompoundBySlugFromSupabase(slug)) ?? getMockCompoundBySlug(slug);
   if (!compound) notFound();
-  if (compound && isCardEmpty(compound.card)) {
-    await runIngest(compound.canonical_name);
-    const updated = await getCompoundBySlugFromSupabase(slug);
-    if (updated) compound = updated;
-  }
+  const cardEmpty = isCardEmpty(compound.card);
 
   const fdaPackages = await fetchFDAPackages({
     application_number: compound.regulatory?.fda_application_number ?? null,
@@ -67,6 +63,9 @@ export default async function CompoundPage({
         {compound.description && (
           <p className="mt-2 text-gray-600">{compound.description}</p>
         )}
+        {cardEmpty && (
+          <LoadFullDataButton slug={slug} />
+        )}
 
         <div className="mt-8 space-y-6">
           {/* Core card content first: mechanism, indications, uses, safety, PK */}
@@ -78,7 +77,7 @@ export default async function CompoundPage({
           ) : (
             <section>
               <h2 className="text-lg font-semibold text-gray-900">Mechanism</h2>
-              <p className="mt-1 text-gray-500 italic">Not yet available. Re-run ingest or check DailyMed label.</p>
+              <p className="mt-1 text-gray-500 italic">Not yet available. Use &quot;Load full data&quot; above to fetch from FDA and DailyMed.</p>
             </section>
           )}
 

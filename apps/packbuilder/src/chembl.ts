@@ -16,6 +16,8 @@ export interface ChEMBLTargetRow {
   name: string;
   gene_symbol: string | null;
   species: string | null;
+  organism: string | null;
+  aliases: string[];
   type: TargetType;
   source: "chembl";
 }
@@ -81,6 +83,7 @@ async function getTarget(targetChemblId: string): Promise<{
   target_chembl_id: string;
   target_type: string | null;
   pref_name: string;
+  organism?: string | null;
   components?: { accessions?: string[]; gene_name?: string }[];
 } | null> {
   const url = `${CHEMBL_BASE}/target/${encodeURIComponent(targetChemblId)}.json`;
@@ -90,6 +93,7 @@ async function getTarget(targetChemblId: string): Promise<{
     target_chembl_id?: string;
     target_type?: string;
     pref_name?: string;
+    organism?: string | null;
     target_components?: { accessions?: string[]; gene_name?: string }[];
   };
   const components = data.target_components ?? (data as { components?: { accessions?: string[]; gene_name?: string }[] }).components;
@@ -97,6 +101,7 @@ async function getTarget(targetChemblId: string): Promise<{
     target_chembl_id: data.target_chembl_id ?? targetChemblId,
     target_type: data.target_type ?? null,
     pref_name: data.pref_name ?? targetChemblId,
+    organism: data.organism ?? null,
     components,
   };
 }
@@ -131,6 +136,14 @@ export async function fetchCompoundTargets(
     const type = mapTargetType(targetData.target_type, name);
     const action = inferAction(standard_type);
     const sourceUrl = `https://www.ebi.ac.uk/chembl/target_report_card/${target_chembl_id}/`;
+    const organism = targetData.organism ?? null;
+    const aliases: string[] = [];
+    if (geneSymbol) aliases.push(geneSymbol);
+    if (targetData.components?.length) {
+      for (const c of targetData.components) {
+        if (c.gene_name && !aliases.includes(c.gene_name)) aliases.push(c.gene_name);
+      }
+    }
 
     results.push({
       target: {
@@ -138,7 +151,9 @@ export async function fetchCompoundTargets(
         uniprot_id: uniprotId,
         name,
         gene_symbol: geneSymbol,
-        species: null,
+        species: organism,
+        organism,
+        aliases,
         type,
         source: "chembl",
       },

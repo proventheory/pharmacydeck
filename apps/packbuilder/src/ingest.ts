@@ -15,6 +15,7 @@ import { extractPharmacokineticsFromText } from "pharma-ai";
 import * as atc from "./atc.js";
 import * as clinicaltrials from "./clinicaltrials.js";
 import * as ndc from "./ndc.js";
+import { resolveDrugName } from "./resolveDrugName.js";
 
 const SECTION_TYPE_MAP: Record<string, string> = {
   description: "description",
@@ -108,6 +109,32 @@ function inferDeckTags(primaryClass: string | null, usesSummary: string | null):
   if (/\bhormone|testosterone|estrogen|thyroid|endocrine\b/i.test(text)) tags.add("endocrine");
   if (/\bagonist|antagonist|receptor\b/i.test(text)) tags.add("receptor");
   return Array.from(tags);
+}
+
+/** Get or create global source_reference row; return id for edge provenance. */
+async function getOrCreateSourceRef(
+  supabase: ReturnType<typeof getSupabaseServiceRole>,
+  source_type: string,
+  url: string | null = null,
+  title: string | null = null
+): Promise<string | null> {
+  if (!supabase) return null;
+  let q = supabase.from("source_reference").select("id").eq("source_type", source_type);
+  if (url != null && url !== "") q = q.eq("url", url);
+  else q = q.is("url", null);
+  const { data: existing } = await q.limit(1).maybeSingle();
+  if (existing?.id) return existing.id;
+  const { data: inserted } = await supabase
+    .from("source_reference")
+    .insert({
+      source_type,
+      url: url ?? null,
+      title: title ?? null,
+      retrieved_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+  return inserted?.id ?? null;
 }
 
 /** Extract candidate drug names from drug_interactions section text for DDI resolution. */
@@ -350,7 +377,9 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
     // ChEMBL drug–target: fetch targets and compound_target links; collect names for card
     let mechanismTargetNames: string[] = [];
     try {
+      const chemblSourceRefId = await getOrCreateSourceRef(supabase, "chembl", "https://www.ebi.ac.uk/chembl/", "ChEMBL");
       const compoundTargets = await chembl.fetchCompoundTargets(canonical_name, rxcui);
+      const nowIso = new Date().toISOString();
       for (const row of compoundTargets) {
         const targetRow = {
           type: row.target.type,
@@ -359,8 +388,10 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
           name: row.target.name,
           gene_symbol: row.target.gene_symbol ?? null,
           species: row.target.species ?? null,
+          organism: row.target.organism ?? row.target.species ?? null,
+          aliases: Array.isArray(row.target.aliases) && row.target.aliases.length > 0 ? row.target.aliases : [],
           source: row.target.source,
-          updated_at: new Date().toISOString(),
+          updated_at: nowIso,
         };
         const { data: targetData } =
           row.target.uniprot_id != null
@@ -377,6 +408,10 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
                 action: row.action,
                 source: "chembl",
                 source_url: row.source_url ?? null,
+                evidence_strength: "assay",
+                confidence: 0.85,
+                retrieved_at: nowIso,
+                source_ref_id: chemblSourceRefId,
               },
               { onConflict: "compound_id,target_id" }
             );
@@ -392,33 +427,66 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
     try {
       const interactionSnippet = labelSnippets.find((s) => /drug_interaction/i.test(s.section))?.text;
       if (interactionSnippet) {
+        const dailymedSourceRefId = await getOrCreateSourceRef(supabase, "dailymed_label", "https://dailymed.nlm.nih.gov/", "DailyMed");
         const candidates = parseDrugInteractionCandidates(interactionSnippet);
         const severity = inferSeverity(interactionSnippet);
         const description = interactionSnippet.slice(0, 5000);
+        const nowIso = new Date().toISOString();
         for (const candidateName of candidates) {
-          const otherRxcui = await rxnorm.findRxcuiByString(candidateName);
-          if (!otherRxcui || otherRxcui === rxcui) continue;
-          const { data: otherCompound } = await supabase.from("compound").select("id").eq("rxcui", otherRxcui).limit(1).single();
-          if (!otherCompound?.id) continue;
-          const idA = compound_id < otherCompound.id ? compound_id : otherCompound.id;
-          const idB = compound_id < otherCompound.id ? otherCompound.id : compound_id;
-          await supabase.from("compound_interaction").upsert(
-            {
-              compound_id_a: idA,
-              compound_id_b: idB,
-              severity,
-              description,
-              mechanism: null,
-              management: null,
-              source: "dailymed",
-            },
-            { onConflict: "compound_id_a,compound_id_b" }
-          );
+          const resolved = await resolveDrugName(candidateName, supabase);
+          if (resolved && resolved.rxcui !== rxcui) {
+            const idA = compound_id < resolved.compound_id ? compound_id : resolved.compound_id;
+            const idB = compound_id < resolved.compound_id ? resolved.compound_id : compound_id;
+            await supabase.from("compound_interaction").upsert(
+              {
+                compound_id_a: idA,
+                compound_id_b: idB,
+                severity,
+                description,
+                mechanism: null,
+                management: null,
+                source: "dailymed",
+                evidence_strength: "label",
+                confidence: 0.9,
+                retrieved_at: nowIso,
+                source_ref_id: dailymedSourceRefId,
+                resolution_status: "resolved",
+              },
+              { onConflict: "compound_id_a,compound_id_b" }
+            );
+          } else if (!resolved) {
+            const rawName = candidateName.slice(0, 500);
+            const { data: existing } = await supabase
+              .from("compound_interaction")
+              .select("id")
+              .eq("compound_id_a", compound_id)
+              .is("compound_id_b", null)
+              .eq("other_drug_raw_name", rawName)
+              .limit(1)
+              .maybeSingle();
+            if (!existing) {
+              await supabase.from("compound_interaction").insert({
+                compound_id_a: compound_id,
+                compound_id_b: null,
+                other_drug_raw_name: rawName,
+                resolution_status: "unresolved",
+                severity,
+                description,
+                mechanism: null,
+                management: null,
+                source: "dailymed",
+                evidence_strength: "label",
+                confidence: 0.9,
+                retrieved_at: nowIso,
+                source_ref_id: dailymedSourceRefId,
+              });
+            }
+          }
         }
         const { count } = await supabase
           .from("compound_interaction")
           .select("id", { count: "exact", head: true })
-          .or(`compound_id_a.eq.${compound_id},compound_id_b.eq.${compound_id}`);
+          .eq("compound_id_a", compound_id);
         interactionCount = count ?? null;
       }
     } catch (_) {
@@ -428,6 +496,8 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
     try {
       const atcRows = await atc.fetchAtcForRxcui(rxcui);
       if (atcRows.length > 0) {
+        const rxclassSourceRefId = await getOrCreateSourceRef(supabase, "rxclass", "https://rxnav.nlm.nih.gov/", "RxClass");
+        const nowIso = new Date().toISOString();
         await supabase.from("compound_atc").delete().eq("compound_id", compound_id);
         await supabase.from("compound_atc").insert(
           atcRows.map((row) => ({
@@ -436,6 +506,10 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
             atc_name: row.atc_name,
             level: row.level,
             source: "rxclass",
+            evidence_strength: "curated",
+            confidence: 0.9,
+            retrieved_at: nowIso,
+            source_ref_id: rxclassSourceRefId,
           }))
         );
       }
@@ -446,6 +520,8 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
     try {
       const trials = await clinicaltrials.fetchTrialsForDrug(canonical_name, 15);
       if (trials.length > 0) {
+        const ctSourceRefId = await getOrCreateSourceRef(supabase, "clinicaltrials_gov", "https://clinicaltrials.gov/", "ClinicalTrials.gov");
+        const nowIso = new Date().toISOString();
         for (const t of trials) {
           await supabase
             .from("compound_trial")
@@ -458,6 +534,10 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
                 status: t.status,
                 conditions: t.conditions,
                 source_url: t.source_url,
+                evidence_strength: "curated",
+                confidence: 0.9,
+                retrieved_at: nowIso,
+                source_ref_id: ctSourceRefId,
               },
               { onConflict: "compound_id,nct_id" }
             );
@@ -470,6 +550,7 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
     try {
       const products = await ndc.fetchNdcProductsForSubstance(canonical_name, 25);
       if (products.length > 0) {
+        const openFdaNdcSourceRefId = await getOrCreateSourceRef(supabase, "openfda_ndc", "https://api.fda.gov/drug/ndc.json", "openFDA NDC");
         await supabase.from("compound_product").delete().eq("compound_id", compound_id);
         await supabase.from("compound_product").insert(
           products.map((p) => ({
@@ -480,6 +561,12 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
             strength: p.strength,
             manufacturer: p.manufacturer,
             source: "openfda",
+            brand_name: p.brand_name ?? null,
+            generic_name: p.generic_name ?? null,
+            route: p.route ?? null,
+            approval_status: p.approval_status ?? null,
+            application_number: p.application_number ?? null,
+            source_ref_id: openFdaNdcSourceRefId,
           }))
         );
       }
@@ -494,6 +581,8 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
     const adverseFrequency = buildAdverseFrequency(labelSnippets, safetySummary);
     try {
       if (Object.keys(adverseFrequency).length > 0) {
+        const dailymedAeSourceRefId = await getOrCreateSourceRef(supabase, "dailymed_label", "https://dailymed.nlm.nih.gov/", "DailyMed");
+        const nowIso = new Date().toISOString();
         await supabase.from("compound_adverse_effect").delete().eq("compound_id", compound_id);
         await supabase.from("compound_adverse_effect").insert(
           Object.entries(adverseFrequency).map(([effect_term, frequency]) => ({
@@ -502,12 +591,19 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
             frequency,
             severity: null,
             source: "dailymed",
+            evidence_strength: "label",
+            confidence: 0.9,
+            retrieved_at: nowIso,
+            source_ref_id: dailymedAeSourceRefId,
           }))
         );
       }
     } catch (_) {
       // adverse effect table optional
     }
+    let pharmacokinetics_source: string | null = "label_section";
+    let pk_extraction_method: string | null = "regex_v1";
+    let pk_confidence: number | null = 0.7;
     if (process.env.OPENAI_API_KEY || process.env.FULL_PK) {
       try {
         const pkSections = labelSnippets
@@ -524,6 +620,8 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
             Object.assign(merged, (extracted as { other?: Record<string, unknown> }).other);
           }
           pharmacokinetics = merged;
+          pk_extraction_method = "llm_v1";
+          pk_confidence = 0.85;
         }
       } catch (_) {
         // Keep regex-only PK
@@ -533,6 +631,8 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
     try {
       const approved = (clinicalProfile as { approved_indications?: string[] }).approved_indications ?? [];
       if (approved.length > 0) {
+        const dailymedIndSourceRefId = await getOrCreateSourceRef(supabase, "dailymed_label", "https://dailymed.nlm.nih.gov/", "DailyMed");
+        const nowIso = new Date().toISOString();
         await supabase.from("compound_indication").delete().eq("compound_id", compound_id);
         await supabase.from("compound_indication").insert(
           approved.map((condition_name_or_code) => ({
@@ -540,6 +640,10 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
             condition_name_or_code,
             source: "dailymed",
             approved: true,
+            evidence_strength: "label",
+            confidence: 0.9,
+            retrieved_at: nowIso,
+            source_ref_id: dailymedIndSourceRefId,
           }))
         );
       }
@@ -591,6 +695,9 @@ export async function ingestCompound(inputName: string): Promise<IngestResult> {
       safety_summary: safetySummary,
       pharmacokinetics: Object.keys(pharmacokinetics).length ? pharmacokinetics : {},
       pharmacodynamics: Object.keys(pharmacodynamics).length ? pharmacodynamics : {},
+      pharmacokinetics_source: pharmacokinetics_source,
+      pk_extraction_method: pk_extraction_method,
+      pk_confidence: pk_confidence,
       clinical_profile: clinicalProfile,
       adverse_effect_frequency: adverseFrequency,
       chemistry_profile: pubchemResult?.chemistry_profile ?? {},

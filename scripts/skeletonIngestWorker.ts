@@ -36,7 +36,7 @@ function slugFromCanonicalName(name: string): string {
   return name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
 }
 
-type QueueRow = { id: number; rxcui: string; canonical_name: string | null; priority_score: number | null; category: string | null };
+type QueueRow = { id: number; rxcui: string; canonical_name: string | null; priority_score: number | null; category: string | null; attempts: number };
 
 async function main() {
   loadEnv();
@@ -57,7 +57,7 @@ async function main() {
     // Claim: select N pending, then mark them processing (no LIMIT on update in Supabase)
     const { data: pending, error: selErr } = await supabase
       .from("ingest_queue")
-      .select("id, rxcui, canonical_name, priority_score, category")
+      .select("id, rxcui, canonical_name, priority_score, category, attempts")
       .eq("status", "pending")
       .order("id", { ascending: true })
       .limit(batchSize);
@@ -75,6 +75,16 @@ async function main() {
     const ids = toProcess.map((r) => r.id);
     await supabase.from("ingest_queue").update({ status: "processing", updated_at: new Date().toISOString() }).in("id", ids);
 
+    const maxAttempts = 3;
+    const batchJobPayload = {
+      job_type: "compound_ingest",
+      rxcui: toProcess.map((r) => r.rxcui).join(","),
+      status: "running" as const,
+      started_at: new Date().toISOString(),
+    };
+    const { data: jobRow } = await supabase.from("ingest_job").insert(batchJobPayload).select("id").single();
+    const jobId = jobRow != null ? (jobRow as { id: string }).id : null;
+
     for (const row of toProcess) {
       const canonical_name = (row.canonical_name ?? row.rxcui).trim() || row.rxcui;
       const slug = slugFromCanonicalName(canonical_name);
@@ -89,7 +99,12 @@ async function main() {
           .single();
 
         if (compoundErr) {
-          await supabase.from("ingest_queue").update({ status: "error", last_error: compoundErr.message, updated_at: new Date().toISOString() }).eq("id", row.id);
+          const nextAttempts = (row.attempts ?? 0) + 1;
+          const status = nextAttempts >= maxAttempts ? "dead_letter" : "error";
+          await supabase
+            .from("ingest_queue")
+            .update({ status, last_error: compoundErr.message, attempts: nextAttempts, updated_at: new Date().toISOString() })
+            .eq("id", row.id);
           continue;
         }
         const compound_id = (compound as { id: string }).id;
@@ -108,7 +123,12 @@ async function main() {
         );
 
         if (cardErr) {
-          await supabase.from("ingest_queue").update({ status: "error", last_error: cardErr.message, updated_at: new Date().toISOString() }).eq("id", row.id);
+          const nextAttempts = (row.attempts ?? 0) + 1;
+          const status = nextAttempts >= maxAttempts ? "dead_letter" : "error";
+          await supabase
+            .from("ingest_queue")
+            .update({ status, last_error: cardErr.message, attempts: nextAttempts, updated_at: new Date().toISOString() })
+            .eq("id", row.id);
           continue;
         }
 
@@ -116,13 +136,31 @@ async function main() {
         totalProcessed++;
       } catch (e) {
         const msg = (e as Error).message;
-        await supabase.from("ingest_queue").update({ status: "error", last_error: msg, updated_at: new Date().toISOString() }).eq("id", row.id);
+        const nextAttempts = (row.attempts ?? 0) + 1;
+        const status = nextAttempts >= maxAttempts ? "dead_letter" : "error";
+        await supabase
+          .from("ingest_queue")
+          .update({ status, last_error: msg, attempts: nextAttempts, updated_at: new Date().toISOString() })
+          .eq("id", row.id);
       }
+    }
+
+    if (jobId) {
+      const allDone = totalProcessed === toProcess.length;
+      await supabase
+        .from("ingest_job")
+        .update({
+          status: allDone ? "done" : "failed",
+          finished_at: new Date().toISOString(),
+          last_error: allDone ? null : "One or more rows failed or dead_letter",
+        })
+        .eq("id", jobId);
     }
 
     console.log(`Processed batch of ${toProcess.length}; total this run: ${totalProcessed}`);
 
     if (runOnce) break;
+    await new Promise((r) => setTimeout(r, 1000));
   }
 
   console.log(`Skeleton ingest done. Processed ${totalProcessed} rows.`);
